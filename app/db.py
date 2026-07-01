@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
@@ -99,6 +100,96 @@ def _append_age_filter(
     else:
         clauses.append(dated_clause)
     params.extend([cutoff, cutoff])
+
+
+def _term_variants(value: str) -> list[str]:
+    lowered = value.strip().lower()
+    if not lowered:
+        return []
+    decomposed = unicodedata.normalize("NFKD", lowered)
+    without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
+    variants = {lowered, without_accents}
+    if "sao " in without_accents:
+        variants.add(without_accents.replace("sao ", "são "))
+    return sorted(variants)
+
+
+def _preferred_region_terms(preferred_locations: list[str] | None) -> list[str]:
+    broad_terms = {
+        "anywhere",
+        "brazil",
+        "brasil",
+        "home office",
+        "remote",
+        "remoto",
+        "worldwide",
+    }
+    terms = []
+    for location in preferred_locations or []:
+        for variant in _term_variants(location):
+            if variant not in broad_terms and variant not in terms:
+                terms.append(variant)
+    return terms
+
+
+def _remote_clause() -> str:
+    return """
+        (
+            source IN ('remotive', 'remoteok')
+            OR LOWER(COALESCE(location, '')) LIKE '%remot%'
+            OR LOWER(COALESCE(location, '')) LIKE '%home office%'
+            OR LOWER(COALESCE(location, '')) LIKE '%teletrabalho%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%remot%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%home office%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%teletrabalho%'
+        )
+    """
+
+
+def _region_clause(preferred_locations: list[str] | None) -> tuple[str, list[object]]:
+    terms = _preferred_region_terms(preferred_locations)
+    if not terms:
+        return "0", []
+    clauses = ["LOWER(COALESCE(location, '')) LIKE ?" for _ in terms]
+    return "(" + " OR ".join(clauses) + ")", [f"%{term}%" for term in terms]
+
+
+def _append_job_mode_filter(
+    clauses: list[str],
+    params: list[object],
+    job_modes: list[str] | None,
+    preferred_locations: list[str] | None,
+) -> None:
+    if job_modes is None:
+        return
+
+    selected = {mode for mode in job_modes if mode in {"home_office", "region", "onsite"}}
+    if not selected:
+        clauses.append("0")
+        return
+    if selected == {"home_office", "region", "onsite"}:
+        return
+
+    remote_clause = _remote_clause()
+    region_clause, region_params = _region_clause(preferred_locations)
+    mode_clauses = []
+    mode_params: list[object] = []
+
+    if "home_office" in selected:
+        mode_clauses.append(remote_clause)
+    if "region" in selected:
+        mode_clauses.append(region_clause)
+        mode_params.extend(region_params)
+    if "onsite" in selected:
+        onsite_clause = f"(NOT {remote_clause}"
+        if region_clause != "0":
+            onsite_clause += f" AND NOT {region_clause}"
+            mode_params.extend(region_params)
+        onsite_clause += ")"
+        mode_clauses.append(onsite_clause)
+
+    clauses.append("(" + " OR ".join(mode_clauses) + ")")
+    params.extend(mode_params)
 
 
 def prune_irrelevant_jobs(min_score: int, db_path: str | Path = DEFAULT_DB_PATH) -> int:
@@ -227,6 +318,8 @@ def list_jobs(
     max_age_days: int | None = None,
     include_unknown_dates: bool = True,
     include_international: bool = True,
+    job_modes: list[str] | None = None,
+    preferred_locations: list[str] | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
     limit: int = 200,
 ) -> list[sqlite3.Row]:
@@ -269,6 +362,8 @@ def list_jobs(
             )
             """
         )
+
+    _append_job_mode_filter(clauses, params, job_modes, preferred_locations)
 
     params.append(limit)
     sql = f"""
@@ -346,6 +441,8 @@ def count_jobs(
     max_age_days: int | None = None,
     include_unknown_dates: bool = True,
     include_international: bool = True,
+    job_modes: list[str] | None = None,
+    preferred_locations: list[str] | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> int:
     clauses = ["score >= ?"]
@@ -387,6 +484,8 @@ def count_jobs(
             )
             """
         )
+
+    _append_job_mode_filter(clauses, params, job_modes, preferred_locations)
 
     with connect(db_path) as connection:
         row = connection.execute(f"SELECT COUNT(*) FROM jobs WHERE {' AND '.join(clauses)}", params).fetchone()

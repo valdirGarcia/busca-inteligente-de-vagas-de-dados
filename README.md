@@ -11,6 +11,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 5. Permite salvar vagas, marcar candidaturas, ignorar vagas e adicionar vagas manualmente.
 6. Mantem um dashboard local com status, fontes e empresas.
 7. Remove vagas antigas/irrelevantes do banco, preservando vagas salvas, candidaturas e vagas manuais.
+8. Filtra recomendacoes por tipo/local: home office, regiao configurada no perfil e presencial fora da regiao.
 
 ## Como rodar
 

@@ -37,6 +37,12 @@ STATUS_LABELS = {
     "ignored": "Ignorada",
 }
 
+JOB_MODE_OPTIONS = {
+    "Home office": "home_office",
+    "Regiao": "region",
+    "Presencial": "onsite",
+}
+
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -61,6 +67,14 @@ def list_to_text(values: list[str] | None) -> str:
 
 def text_to_list(value: str) -> list[str]:
     return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def yaml_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return text_to_list(str(value))
 
 
 def format_date(value: str | None) -> str:
@@ -133,7 +147,8 @@ def recommendations_tab() -> None:
     profile = read_yaml(PROFILE_PATH)
     match_settings = profile.get("match_settings", {})
     configured_min_score = max(1, int(match_settings.get("min_score_to_show", 1)))
-    filter_cols = st.columns([1.6, 1.8, 1, 1.1, 1])
+    preferred_locations = yaml_list(profile.get("locations"))
+    filter_cols = st.columns([1.4, 1.7, 0.9, 1.0, 1.4, 0.9])
     status_option = filter_cols[0].selectbox(
         "Status",
         ["Novas e salvas", "Todas", "Novas", "Salvas", "Candidatadas", "Ignoradas"],
@@ -151,7 +166,17 @@ def recommendations_tab() -> None:
         ["24 horas", "7 dias", "14 dias", "30 dias"],
         index=3,
     )
-    display_limit = filter_cols[4].number_input("Qtd. exibida", min_value=20, max_value=1000, value=300, step=20)
+    selected_job_mode_labels = filter_cols[4].multiselect(
+        "Tipo/local",
+        list(JOB_MODE_OPTIONS),
+        default=["Home office", "Regiao"],
+        help=(
+            "Home office mostra vagas remotas. Regiao usa as cidades do perfil. "
+            "Presencial mostra vagas nao remotas fora da regiao."
+        ),
+    )
+    job_modes = [JOB_MODE_OPTIONS[label] for label in selected_job_mode_labels]
+    display_limit = filter_cols[5].number_input("Qtd. exibida", min_value=20, max_value=1000, value=300, step=20)
     include_unknown_dates = st.checkbox("Incluir vagas sem data informada", value=False)
     include_international = st.checkbox("Mostrar vagas internacionais", value=False)
 
@@ -180,6 +205,8 @@ def recommendations_tab() -> None:
         max_age_days=max_age_days,
         include_unknown_dates=include_unknown_dates,
         include_international=include_international,
+        job_modes=job_modes,
+        preferred_locations=preferred_locations,
         db_path=DB_PATH,
     )
     rows = list_jobs(
@@ -190,6 +217,8 @@ def recommendations_tab() -> None:
         max_age_days=max_age_days,
         include_unknown_dates=include_unknown_dates,
         include_international=include_international,
+        job_modes=job_modes,
+        preferred_locations=preferred_locations,
         db_path=DB_PATH,
         limit=int(display_limit),
     )
