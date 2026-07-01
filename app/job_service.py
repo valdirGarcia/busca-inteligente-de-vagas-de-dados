@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+
+from app.collectors.greenhouse import fetch_greenhouse_jobs
+from app.collectors.lever import fetch_lever_jobs
+from app.collectors.remotive import fetch_remotive_jobs
+from app.collectors.remoteok import fetch_remoteok_jobs
+from app.collectors.arbeitnow import fetch_arbeitnow_jobs
+from app.collectors.solides import fetch_solides_jobs
+from app.db import DEFAULT_DB_PATH, connect, init_db, prune_irrelevant_jobs, prune_stale_jobs, upsert_match_results, vacuum_db
+from app.matcher import DEFAULT_MATCH_SETTINGS, score_job
+from app.models import Job, MatchResult
+from app.profile_loader import load_profile
+from app.sources_loader import load_sources
+
+
+def _fetch_source(source_type: str, token: str) -> tuple[str, str, list[Job]]:
+    if source_type == "greenhouse":
+        return source_type, token, fetch_greenhouse_jobs(token)
+    if source_type == "lever":
+        return source_type, token, fetch_lever_jobs(token)
+    if source_type == "remotive":
+        return source_type, token, fetch_remotive_jobs(token)
+    if source_type == "remoteok":
+        return source_type, token, fetch_remoteok_jobs()
+    if source_type == "arbeitnow":
+        pages = int(token) if token.isdigit() else 5
+        return source_type, token, fetch_arbeitnow_jobs(pages=pages)
+    if source_type == "solides":
+        pages = int(token) if token.isdigit() else 3
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_solides_jobs(pages_per_term=pages, terms=terms)
+    raise ValueError(f"Fonte desconhecida: {source_type}")
+
+
+def collect_jobs(sources_path: str | Path) -> tuple[list[Job], list[str]]:
+    sources = load_sources(sources_path)
+    jobs: list[Job] = []
+    errors: list[str] = []
+    tasks: list[tuple[str, str]] = []
+
+    for source_type, tokens in sources.items():
+        for token in tokens:
+            tasks.append((source_type, token))
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {
+            executor.submit(_fetch_source, source_type, token): (source_type, token)
+            for source_type, token in tasks
+        }
+        for future in as_completed(futures):
+            source_type, token = futures[future]
+            try:
+                _, _, fetched_jobs = future.result()
+            except HTTPError as error:
+                errors.append(f"{source_type}:{token} retornou HTTP {error.code}")
+                continue
+            except URLError as error:
+                errors.append(f"{source_type}:{token} erro de rede: {error.reason}")
+                continue
+            except Exception as error:
+                errors.append(f"{source_type}:{token} falhou: {error}")
+                continue
+            jobs.extend(fetched_jobs)
+
+    return jobs, errors
+
+
+def rank_jobs(profile_path: str | Path, jobs: list[Job]) -> list[MatchResult]:
+    profile = load_profile(profile_path)
+    unique_jobs = {}
+    for job in jobs:
+        dedupe_key = job.url or f"{job.source}:{job.company}:{job.title}:{job.location}"
+        unique_jobs[dedupe_key] = job
+    return sorted(
+        (score_job(profile, job) for job in unique_jobs.values()),
+        key=lambda item: item.score,
+        reverse=True,
+    )
+
+
+def refresh_recommendations(
+    profile_path: str | Path,
+    sources_path: str | Path,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, object]:
+    init_db(db_path)
+    jobs, errors = collect_jobs(sources_path)
+    results = rank_jobs(profile_path, jobs)
+    saved = upsert_match_results(results, db_path)
+    profile = load_profile(profile_path)
+    pruned = prune_irrelevant_jobs(
+        int(profile.match_settings.get("min_score_to_store", DEFAULT_MATCH_SETTINGS["min_score_to_store"])),
+        db_path,
+    )
+    stale_pruned = prune_stale_jobs(
+        int(profile.match_settings.get("max_job_age_days_to_store", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])),
+        db_path,
+    )
+    if pruned or stale_pruned:
+        vacuum_db(db_path)
+    return {
+        "fetched": len(jobs),
+        "ranked": len(results),
+        "saved": saved,
+        "pruned": pruned,
+        "stale_pruned": stale_pruned,
+        "errors": errors,
+    }
+
+
+def rescore_existing_jobs(
+    profile_path: str | Path,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, int]:
+    import json
+
+    init_db(db_path)
+    with connect(db_path) as connection:
+        rows = list(connection.execute("SELECT * FROM jobs"))
+
+    jobs = []
+    for row in rows:
+        try:
+            categories = json.loads(row["categories_json"] or "{}")
+        except json.JSONDecodeError:
+            categories = {}
+        jobs.append(
+            Job(
+                title=row["title"],
+                company=row["company"],
+                location=row["location"] or "",
+                url=row["url"] or "",
+                description=row["description"] or "",
+                source=row["source"] or "",
+                published_at=row["published_at"] or "",
+                categories={str(key): str(value) for key, value in categories.items()},
+            )
+        )
+
+    results = rank_jobs(profile_path, jobs)
+    saved = upsert_match_results(results, db_path)
+    profile = load_profile(profile_path)
+    pruned = prune_irrelevant_jobs(
+        int(profile.match_settings.get("min_score_to_store", DEFAULT_MATCH_SETTINGS["min_score_to_store"])),
+        db_path,
+    )
+    stale_pruned = prune_stale_jobs(
+        int(profile.match_settings.get("max_job_age_days_to_store", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])),
+        db_path,
+    )
+    if pruned or stale_pruned:
+        vacuum_db(db_path)
+    return {"rescored": len(results), "saved": saved, "pruned": pruned, "stale_pruned": stale_pruned}

@@ -1,0 +1,393 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import sqlite3
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Iterable
+
+from app.models import Job, MatchResult
+
+
+DEFAULT_DB_PATH = Path("data/app.db")
+STATUSES = {"new", "saved", "applied", "ignored"}
+
+
+def utc_now() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat()
+
+
+def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    db_file = Path(db_path)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(db_file)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    with connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                company TEXT NOT NULL,
+                location TEXT,
+                url TEXT,
+                description TEXT,
+                source TEXT,
+                published_at TEXT,
+                categories_json TEXT,
+                score INTEGER NOT NULL DEFAULT 0,
+                matched_skills_json TEXT,
+                matched_domains_json TEXT,
+                gaps_json TEXT,
+                reasons_json TEXT,
+                contact_email TEXT,
+                status TEXT NOT NULL DEFAULT 'new',
+                notes TEXT,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                applied_at TEXT
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company)")
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
+        if "published_at" not in columns:
+            connection.execute("ALTER TABLE jobs ADD COLUMN published_at TEXT")
+
+
+def make_job_id(job: Job) -> str:
+    stable_key = job.url or f"{job.source}|{job.company}|{job.title}|{job.location}"
+    return hashlib.sha256(stable_key.encode("utf-8")).hexdigest()[:24]
+
+
+def extract_contact_email(job: Job) -> str:
+    searchable = "\n".join([job.description, job.url, " ".join(job.categories.values())])
+    matches = re.findall(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", searchable)
+    return matches[0] if matches else ""
+
+
+def _json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _append_age_filter(
+    clauses: list[str],
+    params: list[object],
+    cutoff: str,
+    include_unknown_dates: bool,
+) -> None:
+    dated_clause = """
+        (
+            published_at IS NOT NULL
+            AND published_at != ''
+            AND (
+                (LENGTH(published_at) = 10 AND DATE(published_at) >= DATE(?))
+                OR (LENGTH(published_at) != 10 AND DATETIME(published_at) >= DATETIME(?))
+            )
+        )
+    """
+    if include_unknown_dates:
+        clauses.append(f"(published_at IS NULL OR published_at = '' OR {dated_clause})")
+    else:
+        clauses.append(dated_clause)
+    params.extend([cutoff, cutoff])
+
+
+def prune_irrelevant_jobs(min_score: int, db_path: str | Path = DEFAULT_DB_PATH) -> int:
+    with connect(db_path) as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM jobs
+            WHERE score < ?
+              AND status NOT IN ('saved', 'applied')
+              AND source != 'manual'
+            """,
+            (min_score,),
+        )
+        return cursor.rowcount
+
+
+def prune_stale_jobs(max_age_days: int, db_path: str | Path = DEFAULT_DB_PATH) -> int:
+    cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).isoformat()
+    with connect(db_path) as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM jobs
+            WHERE status NOT IN ('saved', 'applied')
+              AND source != 'manual'
+              AND (
+                    published_at IS NULL
+                    OR published_at = ''
+                    OR (LENGTH(published_at) = 10 AND DATE(published_at) < DATE(?))
+                    OR (LENGTH(published_at) != 10 AND DATETIME(published_at) < DATETIME(?))
+              )
+            """,
+            (cutoff, cutoff),
+        )
+        return cursor.rowcount
+
+
+def vacuum_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    with connect(db_path) as connection:
+        connection.execute("VACUUM")
+
+
+def upsert_match_results(results: Iterable[MatchResult], db_path: str | Path = DEFAULT_DB_PATH) -> int:
+    now = utc_now()
+    rows = []
+    for result in results:
+        job = result.job
+        rows.append(
+            (
+                make_job_id(job),
+                job.title,
+                job.company,
+                job.location,
+                job.url,
+                job.description,
+                job.source,
+                job.published_at,
+                _json(job.categories),
+                result.score,
+                _json(result.matched_skills),
+                _json(result.matched_domains),
+                _json(result.gaps),
+                _json(result.reasons),
+                extract_contact_email(job),
+                now,
+                now,
+            )
+        )
+
+    with connect(db_path) as connection:
+        connection.executemany(
+            """
+            INSERT INTO jobs (
+                id, title, company, location, url, description, source, published_at, categories_json,
+                score, matched_skills_json, matched_domains_json, gaps_json, reasons_json,
+                contact_email, first_seen_at, last_seen_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                company = excluded.company,
+                location = excluded.location,
+                url = excluded.url,
+                description = excluded.description,
+                source = excluded.source,
+                published_at = excluded.published_at,
+                categories_json = excluded.categories_json,
+                score = excluded.score,
+                matched_skills_json = excluded.matched_skills_json,
+                matched_domains_json = excluded.matched_domains_json,
+                gaps_json = excluded.gaps_json,
+                reasons_json = excluded.reasons_json,
+                contact_email = excluded.contact_email,
+                last_seen_at = excluded.last_seen_at
+            """,
+            rows,
+        )
+    return len(rows)
+
+
+def update_job_status(job_id: str, status: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    if status not in STATUSES:
+        raise ValueError(f"Status invalido: {status}")
+    applied_at = utc_now() if status == "applied" else None
+    with connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE jobs
+            SET status = ?,
+                applied_at = COALESCE(?, applied_at)
+            WHERE id = ?
+            """,
+            (status, applied_at, job_id),
+        )
+
+
+def update_job_notes(job_id: str, notes: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    with connect(db_path) as connection:
+        connection.execute("UPDATE jobs SET notes = ? WHERE id = ?", (notes, job_id))
+
+
+def list_jobs(
+    statuses: list[str] | None = None,
+    min_score: int = 0,
+    query: str = "",
+    max_age_hours: int | None = None,
+    max_age_days: int | None = None,
+    include_unknown_dates: bool = True,
+    include_international: bool = True,
+    db_path: str | Path = DEFAULT_DB_PATH,
+    limit: int = 200,
+) -> list[sqlite3.Row]:
+    clauses = ["score >= ?"]
+    params: list[object] = [min_score]
+
+    if statuses:
+        placeholders = ", ".join("?" for _ in statuses)
+        clauses.append(f"status IN ({placeholders})")
+        params.extend(statuses)
+
+    if query.strip():
+        clauses.append("(title LIKE ? OR company LIKE ? OR location LIKE ?)")
+        term = f"%{query.strip()}%"
+        params.extend([term, term, term])
+
+    if max_age_hours is not None:
+        cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+        _append_age_filter(clauses, params, cutoff, include_unknown_dates)
+    elif max_age_days is not None:
+        cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).isoformat()
+        _append_age_filter(clauses, params, cutoff, include_unknown_dates)
+
+    if not include_international:
+        clauses.append(
+            """
+            (
+                location IS NULL OR location = ''
+                OR LOWER(location) LIKE '%brasil%'
+                OR LOWER(location) LIKE '%brazil%'
+                OR LOWER(location) LIKE '%sao paulo%'
+                OR LOWER(location) LIKE '%são paulo%'
+                OR LOWER(location) LIKE '%araras%'
+                OR LOWER(location) LIKE '%limeira%'
+                OR LOWER(location) LIKE '%leme%'
+                OR LOWER(location) LIKE '%piracicaba%'
+                OR LOWER(location) LIKE '%rio claro%'
+                OR LOWER(location) LIKE '%campinas%'
+                OR LOWER(location) LIKE '%remoto%'
+            )
+            """
+        )
+
+    params.append(limit)
+    sql = f"""
+        SELECT *
+        FROM jobs
+        WHERE {' AND '.join(clauses)}
+        ORDER BY
+            score DESC,
+            DATETIME(published_at) DESC,
+            last_seen_at DESC,
+            CASE status
+                WHEN 'new' THEN 0
+                WHEN 'saved' THEN 1
+                WHEN 'applied' THEN 2
+                ELSE 3
+            END
+        LIMIT ?
+    """
+    with connect(db_path) as connection:
+        return list(connection.execute(sql, params))
+
+
+def dashboard_counts(db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, object]:
+    with connect(db_path) as connection:
+        total = connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        avg_score = connection.execute("SELECT COALESCE(ROUND(AVG(score), 1), 0) FROM jobs").fetchone()[0]
+        by_status = {
+            row["status"]: row["total"]
+            for row in connection.execute("SELECT status, COUNT(*) AS total FROM jobs GROUP BY status")
+        }
+        by_source = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT source, COUNT(*) AS total FROM jobs GROUP BY source ORDER BY total DESC"
+            )
+        ]
+        top_companies = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT company, COUNT(*) AS total, MAX(score) AS best_score
+                FROM jobs
+                GROUP BY company
+                ORDER BY best_score DESC, total DESC
+                LIMIT 10
+                """
+            )
+        ]
+    return {
+        "total": total,
+        "avg_score": avg_score,
+        "by_status": by_status,
+        "by_source": by_source,
+        "top_companies": top_companies,
+    }
+
+
+def parse_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(parsed, list):
+        return [str(item) for item in parsed]
+    return []
+
+
+def count_jobs(
+    statuses: list[str] | None = None,
+    min_score: int = 0,
+    query: str = "",
+    max_age_hours: int | None = None,
+    max_age_days: int | None = None,
+    include_unknown_dates: bool = True,
+    include_international: bool = True,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> int:
+    clauses = ["score >= ?"]
+    params: list[object] = [min_score]
+
+    if statuses:
+        placeholders = ", ".join("?" for _ in statuses)
+        clauses.append(f"status IN ({placeholders})")
+        params.extend(statuses)
+
+    if query.strip():
+        clauses.append("(title LIKE ? OR company LIKE ? OR location LIKE ?)")
+        term = f"%{query.strip()}%"
+        params.extend([term, term, term])
+
+    if max_age_hours is not None:
+        cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+        _append_age_filter(clauses, params, cutoff, include_unknown_dates)
+    elif max_age_days is not None:
+        cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).isoformat()
+        _append_age_filter(clauses, params, cutoff, include_unknown_dates)
+
+    if not include_international:
+        clauses.append(
+            """
+            (
+                location IS NULL OR location = ''
+                OR LOWER(location) LIKE '%brasil%'
+                OR LOWER(location) LIKE '%brazil%'
+                OR LOWER(location) LIKE '%sao paulo%'
+                OR LOWER(location) LIKE '%são paulo%'
+                OR LOWER(location) LIKE '%araras%'
+                OR LOWER(location) LIKE '%limeira%'
+                OR LOWER(location) LIKE '%leme%'
+                OR LOWER(location) LIKE '%piracicaba%'
+                OR LOWER(location) LIKE '%rio claro%'
+                OR LOWER(location) LIKE '%campinas%'
+                OR LOWER(location) LIKE '%remoto%'
+            )
+            """
+        )
+
+    with connect(db_path) as connection:
+        row = connection.execute(f"SELECT COUNT(*) FROM jobs WHERE {' AND '.join(clauses)}", params).fetchone()
+    return int(row[0])

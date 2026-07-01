@@ -1,0 +1,50 @@
+# ATS por empresa. Essas fontes trazem vagas diretamente dos boards publicos.
+greenhouse:
+  - nubank
+  - stone
+  - quintoandar
+  - c6bank
+  - inter
+  - gympass
+  - rdstation
+  - ebanx
+  - vtex
+  - wildlifestudios
+  - xpinc
+  - btgpactual
+  - coinbase
+  - airbnb
+  - stripe
+  - datadog
+  - databricks
+  - mongodb
+  - elastic
+  - amplitude
+  - twilio
+  - brex
+  - affirm
+  - robinhood
+  - anthropic
+  - udemy
+  - instacart
+  - pinterest
+  - reddit
+  - lyft
+
+lever:
+  - spotify
+
+# Fonte agregadora de vagas remotas. O ranking filtra o que realmente combina.
+remotive:
+  - data
+
+remoteok:
+  - data
+
+# Numero de paginas lidas da API publica do Arbeitnow.
+arbeitnow:
+  - 10
+
+# Numero de paginas por termo buscado no portal publico da Solides.
+solides:
+  - 3

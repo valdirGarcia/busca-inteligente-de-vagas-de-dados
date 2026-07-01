@@ -1,0 +1,118 @@
+name: Seu Nome
+
+summary: >
+  Resumo profissional curto. Exemplo: profissional de dados com experiencia em
+  SQL, Python, BI, dashboards, analise estatistica e projetos de dados.
+
+priority_roles:
+  - Cientista de Dados Junior
+  - Analista de Dados Pleno
+  - Analista de BI Pleno
+
+target_roles:
+  - Cientista de Dados
+  - Data Scientist
+  - Analista de Dados
+  - Data Analyst
+  - Analista de BI
+  - BI Analyst
+  - Business Intelligence Analyst
+  - Analytics Engineer
+  - Engenheiro de Dados Junior
+
+seniority:
+  - junior
+  - jr
+  - pleno
+  - pl
+  - mid-level
+  - mid level
+
+locations:
+  - remoto
+  - Brasil
+  - Sao Paulo
+
+remote_preferences:
+  accepts_remote_anywhere: true
+
+salary_preferences:
+  junior_min_monthly_brl: 4000
+  flexible_junior_roles:
+    - Cientista de Dados Junior
+    - Junior Data Scientist
+
+match_settings:
+  min_score_to_show: 1
+  min_score_to_store: 1
+  max_job_age_days_to_store: 30
+  core_skills_weight: 35
+  nice_to_have_skills_weight: 10
+  business_domain_weight: 10
+  priority_role_weight: 30
+  target_role_weight: 25
+  seniority_weight: 5
+  location_weight: 10
+  missing_location_penalty: -20
+  no_role_penalty: -25
+  avoid_penalty: -25
+  junior_salary_bonus: 5
+  junior_salary_penalty: -10
+
+languages:
+  - Portugues
+  - Ingles
+
+links:
+  linkedin: ""
+  github: ""
+
+skills:
+  core:
+    - SQL
+    - Python
+    - Pandas
+    - Power BI
+    - Excel
+    - Estatistica
+    - ETL
+    - Dashboards
+  nice_to_have:
+    - Airflow
+    - dbt
+    - Spark
+    - AWS
+    - Docker
+    - Git
+
+databases:
+  - PostgreSQL
+  - BigQuery
+  - Oracle
+  - SQL
+
+business_domains:
+  - analytics
+  - produto
+  - financeiro
+
+industries:
+  - tecnologia
+  - financeiro
+  - varejo
+  - saude
+
+experience_highlights:
+  - Descreva um resultado importante com dados.
+  - Descreva uma experiencia com dashboards, SQL, Python ou BI.
+
+education:
+  - Sua formacao aqui.
+
+certifications:
+  - Suas certificacoes aqui.
+
+avoid:
+  - presencial obrigatorio fora da minha cidade
+  - senior
+  - especialista com mais de 5 anos de experiencia
