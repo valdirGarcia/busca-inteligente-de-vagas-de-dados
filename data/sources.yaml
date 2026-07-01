@@ -34,6 +34,26 @@ greenhouse:
 lever:
   - spotify
 
+# Ashby tambem e ATS por empresa, com endpoint publico de job board.
+ashby:
+  - openai
+  - cursor
+  - notion
+  - langchain
+
+# SmartRecruiters traz empresas grandes e usa paginas por empresa.
+smartrecruiters:
+  - Experian
+  - BoschGroup
+  - NielsenIQ
+  - ServiceNow
+  - Endava
+  - Talan
+  - Devoteam
+
+smartrecruiters_pages:
+  - 3
+
 # Fonte agregadora de vagas remotas. O ranking filtra o que realmente combina.
 remotive:
   - data
@@ -43,8 +63,8 @@ remoteok:
 
 # Numero de paginas lidas da API publica do Arbeitnow.
 arbeitnow:
-  - 10
+  - 15
 
 # Numero de paginas por termo buscado no portal publico da Solides.
 solides:
-  - 3
+  - 5

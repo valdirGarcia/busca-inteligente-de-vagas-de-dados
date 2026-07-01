@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 from urllib.error import HTTPError, URLError
 
+from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
+from app.collectors.smartrecruiters import fetch_smartrecruiters_jobs
 from app.collectors.solides import fetch_solides_jobs
 from app.matcher import score_job
 from app.profile_loader import load_profile
@@ -31,6 +33,24 @@ def parse_args() -> argparse.Namespace:
         help="Board token de empresa no Greenhouse. Pode ser usado varias vezes. Ex: --greenhouse nubank",
     )
     parser.add_argument(
+        "--ashby",
+        action="append",
+        default=[],
+        help="Board de empresa no Ashby. Pode ser usado varias vezes. Ex: --ashby openai",
+    )
+    parser.add_argument(
+        "--smartrecruiters",
+        action="append",
+        default=[],
+        help="Identificador de empresa no SmartRecruiters. Ex: --smartrecruiters NielsenIQ",
+    )
+    parser.add_argument(
+        "--smartrecruiters-pages",
+        type=int,
+        default=3,
+        help="Paginas por empresa no SmartRecruiters.",
+    )
+    parser.add_argument(
         "--remotive",
         action="append",
         default=[],
@@ -49,10 +69,14 @@ def main() -> None:
 
     if args.sources:
         configured_sources = load_sources(args.sources)
+        args.ashby.extend(configured_sources["ashby"])
         args.lever.extend(configured_sources["lever"])
         args.greenhouse.extend(configured_sources["greenhouse"])
+        args.smartrecruiters.extend(configured_sources["smartrecruiters"])
         args.remotive.extend(configured_sources["remotive"])
         args.remoteok = args.remoteok or bool(configured_sources["remoteok"])
+        if configured_sources["smartrecruiters_pages"]:
+            args.smartrecruiters_pages = int(configured_sources["smartrecruiters_pages"][0])
         if configured_sources["arbeitnow"] and args.arbeitnow is None:
             args.arbeitnow = int(configured_sources["arbeitnow"][0])
         if configured_sources["solides"] and args.solides is None:
@@ -60,6 +84,18 @@ def main() -> None:
 
     jobs = []
     attempted_sources = 0
+    for board_name in args.ashby:
+        attempted_sources += 1
+        try:
+            board_jobs = fetch_ashby_jobs(board_name)
+        except HTTPError as error:
+            print(f"Aviso: Ashby '{board_name}' retornou HTTP {error.code}. Pulando fonte.")
+            continue
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Ashby '{board_name}': {error.reason}. Pulando fonte.")
+            continue
+        jobs.extend(board_jobs)
+
     for company_slug in args.lever:
         attempted_sources += 1
         try:
@@ -83,6 +119,18 @@ def main() -> None:
             print(f"Aviso: erro de rede ao buscar Greenhouse '{board_token}': {error.reason}. Pulando fonte.")
             continue
         jobs.extend(board_jobs)
+
+    for company_slug in args.smartrecruiters:
+        attempted_sources += 1
+        try:
+            company_jobs = fetch_smartrecruiters_jobs(company_slug, pages=args.smartrecruiters_pages)
+        except HTTPError as error:
+            print(f"Aviso: SmartRecruiters '{company_slug}' retornou HTTP {error.code}. Pulando fonte.")
+            continue
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar SmartRecruiters '{company_slug}': {error.reason}. Pulando fonte.")
+            continue
+        jobs.extend(company_jobs)
 
     for category in args.remotive:
         attempted_sources += 1

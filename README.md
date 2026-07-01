@@ -4,7 +4,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 
 ## O que o app faz
 
-1. Busca vagas em fontes publicas como Greenhouse, Lever, Remotive, RemoteOK, Arbeitnow e Solides.
+1. Busca vagas em fontes publicas como Greenhouse, Lever, Ashby, SmartRecruiters, Remotive, RemoteOK, Arbeitnow e Solides.
 2. Normaliza cargo, empresa, local, descricao, fonte e data de publicacao.
 3. Calcula um score de match com base em cargo, senioridade, skills, dominios de negocio, localizacao e termos de penalizacao.
 4. Exibe recomendacoes em ordem decrescente de match.
@@ -12,6 +12,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 6. Mantem um dashboard local com status, fontes e empresas.
 7. Remove vagas antigas/irrelevantes do banco, preservando vagas salvas, candidaturas e vagas manuais.
 8. Filtra recomendacoes por tipo/local: home office, regiao configurada no perfil e presencial fora da regiao.
+9. Evita gravar no SQLite vagas abaixo do match minimo configurado.
 
 ## Como rodar
 
@@ -63,6 +64,8 @@ python -m app.search --profile data/profile.yaml --sources data/sources.yaml --l
 
 - Greenhouse: ATS por empresa.
 - Lever: ATS por empresa.
+- Ashby: ATS por empresa com job board publico.
+- SmartRecruiters: ATS por empresa com postings publicos.
 - Remotive: vagas remotas por categoria.
 - RemoteOK: vagas remotas/tech.
 - Arbeitnow: job board publico.
@@ -72,4 +75,4 @@ As fontes ativas ficam em `data/sources.yaml`.
 
 ## Observacoes
 
-Vagas do LinkedIn nao aparecem automaticamente, a menos que tambem estejam em uma fonte publica coletada pelo app. Para esses casos, use a aba `Adicionar vaga`.
+Vagas do LinkedIn e Indeed nao aparecem automaticamente, a menos que tambem estejam em uma fonte publica coletada pelo app. Para esses casos, use a aba `Adicionar vaga`.

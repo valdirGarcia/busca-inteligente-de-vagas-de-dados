@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from app.collectors.data_terms import looks_like_data_job
@@ -18,7 +20,18 @@ def _timestamp_to_iso(value: object) -> str:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
 
 
-def fetch_arbeitnow_jobs(pages: int = 5, timeout: int = 20) -> list[Job]:
+def _published_within_days(value: str, max_age_days: int) -> bool:
+    if not value:
+        return False
+    try:
+        published = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return False
+    cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+    return published >= cutoff
+
+
+def fetch_arbeitnow_jobs(pages: int = 5, timeout: int = 20, max_age_days: int = 30) -> list[Job]:
     jobs = []
     for page in range(1, pages + 1):
         query = urlencode({"page": page})
@@ -26,10 +39,19 @@ def fetch_arbeitnow_jobs(pages: int = 5, timeout: int = 20) -> list[Job]:
             f"https://www.arbeitnow.com/api/job-board-api?{query}",
             headers={"User-Agent": "Mozilla/5.0 busca-vagas-app/0.1"},
         )
-        with urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            if error.code == 429:
+                break
+            raise
 
         for item in payload.get("data", []):
+            published_at = _timestamp_to_iso(item.get("created_at"))
+            if not _published_within_days(published_at, max_age_days):
+                continue
+
             tags = item.get("tags") or []
             title = item.get("title") or ""
             searchable = " ".join([title, " ".join(str(tag) for tag in tags)])
@@ -46,12 +68,13 @@ def fetch_arbeitnow_jobs(pages: int = 5, timeout: int = 20) -> list[Job]:
                     url=item.get("url") or "",
                     description="\n".join([" ".join(str(tag) for tag in tags), strip_html(item.get("description"))]),
                     source="arbeitnow",
-                    published_at=_timestamp_to_iso(item.get("created_at")),
+                    published_at=published_at,
                     categories={
                         "tags": ", ".join(str(tag) for tag in tags),
                         "remote": str(bool(item.get("remote"))),
                     },
                 )
             )
+        time.sleep(0.2)
 
     return jobs

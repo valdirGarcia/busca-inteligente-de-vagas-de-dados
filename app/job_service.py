@@ -4,11 +4,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
+from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
+from app.collectors.smartrecruiters import fetch_smartrecruiters_jobs
 from app.collectors.solides import fetch_solides_jobs
 from app.db import DEFAULT_DB_PATH, connect, init_db, prune_irrelevant_jobs, prune_stale_jobs, upsert_match_results, vacuum_db
 from app.matcher import DEFAULT_MATCH_SETTINGS, score_job
@@ -17,23 +19,41 @@ from app.profile_loader import load_profile
 from app.sources_loader import load_sources
 
 
-def _fetch_source(source_type: str, token: str) -> tuple[str, str, list[Job]]:
+def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tuple[str, str, list[Job]]:
+    max_age_days = settings.get("max_age_days", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])
+    if source_type == "ashby":
+        return source_type, token, fetch_ashby_jobs(token, max_age_days=max_age_days)
     if source_type == "greenhouse":
-        return source_type, token, fetch_greenhouse_jobs(token)
+        return source_type, token, fetch_greenhouse_jobs(token, max_age_days=max_age_days)
     if source_type == "lever":
-        return source_type, token, fetch_lever_jobs(token)
+        return source_type, token, fetch_lever_jobs(token, max_age_days=max_age_days)
     if source_type == "remotive":
-        return source_type, token, fetch_remotive_jobs(token)
+        return source_type, token, fetch_remotive_jobs(token, max_age_days=max_age_days)
     if source_type == "remoteok":
-        return source_type, token, fetch_remoteok_jobs()
+        return source_type, token, fetch_remoteok_jobs(max_age_days=max_age_days)
     if source_type == "arbeitnow":
         pages = int(token) if token.isdigit() else 5
-        return source_type, token, fetch_arbeitnow_jobs(pages=pages)
+        return source_type, token, fetch_arbeitnow_jobs(pages=pages, max_age_days=max_age_days)
+    if source_type == "smartrecruiters":
+        return source_type, token, fetch_smartrecruiters_jobs(
+            token,
+            pages=settings.get("smartrecruiters_pages", 3),
+            max_age_days=max_age_days,
+        )
     if source_type == "solides":
         pages = int(token) if token.isdigit() else 3
         terms = None if token.isdigit() else [token]
-        return source_type, token, fetch_solides_jobs(pages_per_term=pages, terms=terms)
+        return source_type, token, fetch_solides_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     raise ValueError(f"Fonte desconhecida: {source_type}")
+
+
+def _first_int(values: list[str] | None, default: int) -> int:
+    if not values:
+        return default
+    try:
+        return int(values[0])
+    except ValueError:
+        return default
 
 
 def collect_jobs(sources_path: str | Path) -> tuple[list[Job], list[str]]:
@@ -41,14 +61,20 @@ def collect_jobs(sources_path: str | Path) -> tuple[list[Job], list[str]]:
     jobs: list[Job] = []
     errors: list[str] = []
     tasks: list[tuple[str, str]] = []
+    settings = {
+        "smartrecruiters_pages": _first_int(sources.get("smartrecruiters_pages"), 3),
+        "max_age_days": DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"],
+    }
 
     for source_type, tokens in sources.items():
+        if source_type in {"smartrecruiters_pages"}:
+            continue
         for token in tokens:
             tasks.append((source_type, token))
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(_fetch_source, source_type, token): (source_type, token)
+            executor.submit(_fetch_source, source_type, token, settings): (source_type, token)
             for source_type, token in tasks
         }
         for future in as_completed(futures):
@@ -90,10 +116,14 @@ def refresh_recommendations(
     init_db(db_path)
     jobs, errors = collect_jobs(sources_path)
     results = rank_jobs(profile_path, jobs)
-    saved = upsert_match_results(results, db_path)
     profile = load_profile(profile_path)
+    min_score_to_store = int(
+        profile.match_settings.get("min_score_to_store", DEFAULT_MATCH_SETTINGS["min_score_to_store"])
+    )
+    storable_results = [result for result in results if result.score >= min_score_to_store]
+    saved = upsert_match_results(storable_results, db_path)
     pruned = prune_irrelevant_jobs(
-        int(profile.match_settings.get("min_score_to_store", DEFAULT_MATCH_SETTINGS["min_score_to_store"])),
+        min_score_to_store,
         db_path,
     )
     stale_pruned = prune_stale_jobs(
@@ -105,6 +135,7 @@ def refresh_recommendations(
     return {
         "fetched": len(jobs),
         "ranked": len(results),
+        "eligible": len(storable_results),
         "saved": saved,
         "pruned": pruned,
         "stale_pruned": stale_pruned,

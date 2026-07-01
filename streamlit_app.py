@@ -77,6 +77,16 @@ def yaml_list(value: object) -> list[str]:
     return text_to_list(str(value))
 
 
+def first_int(values: object, default: int) -> int:
+    items = yaml_list(values)
+    if not items:
+        return default
+    try:
+        return int(items[0])
+    except ValueError:
+        return default
+
+
 def format_date(value: str | None) -> str:
     if not value:
         return "Data nao informada"
@@ -148,37 +158,40 @@ def recommendations_tab() -> None:
     match_settings = profile.get("match_settings", {})
     configured_min_score = max(1, int(match_settings.get("min_score_to_show", 1)))
     preferred_locations = yaml_list(profile.get("locations"))
-    filter_cols = st.columns([1.4, 1.7, 0.9, 1.0, 1.4, 0.9])
-    status_option = filter_cols[0].selectbox(
-        "Status",
-        ["Novas e salvas", "Todas", "Novas", "Salvas", "Candidatadas", "Ignoradas"],
-    )
-    query = filter_cols[1].text_input("Buscar", placeholder="cargo, empresa ou local")
-    min_score = filter_cols[2].number_input(
-        "Match minimo",
-        min_value=1,
-        max_value=100,
-        value=configured_min_score,
-        step=5,
-    )
-    age_option = filter_cols[3].selectbox(
-        "Publicada",
-        ["24 horas", "7 dias", "14 dias", "30 dias"],
-        index=3,
-    )
-    selected_job_mode_labels = filter_cols[4].multiselect(
-        "Tipo/local",
-        list(JOB_MODE_OPTIONS),
-        default=["Home office", "Regiao"],
-        help=(
-            "Home office mostra vagas remotas. Regiao usa as cidades do perfil. "
-            "Presencial mostra vagas nao remotas fora da regiao."
-        ),
-    )
+    with st.container(border=True):
+        filter_cols = st.columns([1.7, 2.4, 1.0, 1.0, 0.9])
+        status_option = filter_cols[0].selectbox(
+            "Status",
+            ["Novas e salvas", "Todas", "Novas", "Salvas", "Candidatadas", "Ignoradas"],
+        )
+        query = filter_cols[1].text_input("Buscar", placeholder="cargo, empresa ou local")
+        min_score = filter_cols[2].number_input(
+            "Match minimo",
+            min_value=1,
+            max_value=100,
+            value=configured_min_score,
+            step=5,
+        )
+        age_option = filter_cols[3].selectbox(
+            "Publicada",
+            ["24 horas", "7 dias", "14 dias", "30 dias"],
+            index=3,
+        )
+        display_limit = filter_cols[4].number_input("Qtd. exibida", min_value=20, max_value=1000, value=300, step=20)
+
+        st.markdown("**Tipo/local**")
+        mode_cols = st.columns([1.0, 1.0, 1.0, 1.6, 1.6])
+        selected_job_mode_labels = []
+        if mode_cols[0].checkbox("Home office", value=True):
+            selected_job_mode_labels.append("Home office")
+        if mode_cols[1].checkbox("Regiao", value=True):
+            selected_job_mode_labels.append("Regiao")
+        if mode_cols[2].checkbox("Presencial", value=False):
+            selected_job_mode_labels.append("Presencial")
+        include_unknown_dates = mode_cols[3].checkbox("Incluir vagas sem data informada", value=False)
+        include_international = mode_cols[4].checkbox("Mostrar vagas internacionais", value=False)
+
     job_modes = [JOB_MODE_OPTIONS[label] for label in selected_job_mode_labels]
-    display_limit = filter_cols[5].number_input("Qtd. exibida", min_value=20, max_value=1000, value=300, step=20)
-    include_unknown_dates = st.checkbox("Incluir vagas sem data informada", value=False)
-    include_international = st.checkbox("Mostrar vagas internacionais", value=False)
 
     status_map = {
         "Novas e salvas": ["new", "saved"],
@@ -569,32 +582,55 @@ def settings_tab() -> None:
                     st.success("YAML salvo.")
 
     with sources_section:
-        st.caption("Greenhouse e Lever sao ATS por empresa. Remotive, RemoteOK, Arbeitnow e Solides ampliam a busca.")
+        st.caption(
+            "Greenhouse, Lever, Ashby e SmartRecruiters sao ATS por empresa. "
+            "Remotive, RemoteOK, Arbeitnow e Solides ampliam a busca."
+        )
         with st.form("sources-form"):
-            greenhouse = st.text_area("Greenhouse boards", value=list_to_text(sources.get("greenhouse")), height=260)
-            lever = st.text_area("Lever slugs", value=list_to_text(sources.get("lever")), height=120)
-            remotive = st.text_area("Remotive categorias", value=list_to_text(sources.get("remotive")), height=80)
-            remoteok = st.checkbox("Usar RemoteOK", value=bool(sources.get("remoteok")))
-            arbeitnow_pages = st.number_input(
-                "Paginas do Arbeitnow",
-                min_value=0,
-                max_value=20,
-                value=int((sources.get("arbeitnow") or [5])[0]),
-                step=1,
-            )
-            solides_pages = st.number_input(
-                "Paginas por termo na Solides",
-                min_value=0,
-                max_value=10,
-                value=int((sources.get("solides") or [3])[0]),
-                step=1,
-            )
+            source_cols = st.columns(2)
+            with source_cols[0]:
+                greenhouse = st.text_area("Greenhouse boards", value=list_to_text(sources.get("greenhouse")), height=220)
+                lever = st.text_area("Lever slugs", value=list_to_text(sources.get("lever")), height=100)
+                ashby = st.text_area("Ashby boards", value=list_to_text(sources.get("ashby")), height=120)
+            with source_cols[1]:
+                smartrecruiters = st.text_area(
+                    "SmartRecruiters empresas",
+                    value=list_to_text(sources.get("smartrecruiters")),
+                    height=180,
+                )
+                remotive = st.text_area("Remotive categorias", value=list_to_text(sources.get("remotive")), height=80)
+                remoteok = st.checkbox("Usar RemoteOK", value=bool(sources.get("remoteok")))
+                page_cols = st.columns(3)
+                arbeitnow_pages = page_cols[0].number_input(
+                    "Paginas Arbeitnow",
+                    min_value=0,
+                    max_value=20,
+                    value=first_int(sources.get("arbeitnow"), 15),
+                    step=1,
+                )
+                solides_pages = page_cols[1].number_input(
+                    "Paginas Solides",
+                    min_value=0,
+                    max_value=10,
+                    value=first_int(sources.get("solides"), 5),
+                    step=1,
+                )
+                smartrecruiters_pages = page_cols[2].number_input(
+                    "Paginas SmartRecruiters",
+                    min_value=1,
+                    max_value=10,
+                    value=first_int(sources.get("smartrecruiters_pages"), 3),
+                    step=1,
+                )
             if st.form_submit_button("Salvar fontes", type="primary"):
                 write_yaml(
                     SOURCES_PATH,
                     {
+                        "ashby": text_to_list(ashby),
                         "greenhouse": text_to_list(greenhouse),
                         "lever": text_to_list(lever),
+                        "smartrecruiters": text_to_list(smartrecruiters),
+                        "smartrecruiters_pages": [str(int(smartrecruiters_pages))],
                         "remotive": text_to_list(remotive),
                         "remoteok": ["data"] if remoteok else [],
                         "arbeitnow": [str(int(arbeitnow_pages))] if arbeitnow_pages else [],
@@ -628,6 +664,7 @@ def main() -> None:
                 summary = refresh_recommendations(PROFILE_PATH, SOURCES_PATH, DB_PATH)
             st.success(
                 f"{summary['ranked']} vagas ranqueadas. "
+                f"{summary.get('eligible', summary['saved'])} passaram no match minimo. "
                 f"{summary['saved']} registros atualizados no banco. "
                 f"{summary.get('pruned', 0)} irrelevantes removidas. "
                 f"{summary.get('stale_pruned', 0)} antigas removidas."
