@@ -34,6 +34,10 @@ greenhouse:
 lever:
   - spotify
 
+# Portal publico brasileiro de vagas. Usa termos de dados e filtra por 30 dias.
+gupy:
+  - 5
+
 # Ashby tambem e ATS por empresa, com endpoint publico de job board.
 ashby:
   - openai
@@ -67,4 +71,4 @@ arbeitnow:
 
 # Numero de paginas por termo buscado no portal publico da Solides.
 solides:
-  - 5
+  - 8

@@ -31,6 +31,14 @@ SOLIDES_TITLE_TERMS = [
     "analista de risco de credito",
     "analista de credito",
     "politicas de credito",
+    "analista de indicadores",
+    "analista de informacoes gerenciais",
+    "analista de inteligencia de mercado",
+    "analista de mis",
+    "analista de relatorios",
+    "analytics engineer",
+    "data analytics",
+    "data science",
 ]
 
 

@@ -6,6 +6,7 @@ from urllib.error import HTTPError, URLError
 
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
+from app.collectors.gupy import fetch_gupy_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
@@ -25,6 +26,10 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
         return source_type, token, fetch_ashby_jobs(token, max_age_days=max_age_days)
     if source_type == "greenhouse":
         return source_type, token, fetch_greenhouse_jobs(token, max_age_days=max_age_days)
+    if source_type == "gupy":
+        pages = int(token) if token.isdigit() else 4
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_gupy_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     if source_type == "lever":
         return source_type, token, fetch_lever_jobs(token, max_age_days=max_age_days)
     if source_type == "remotive":
@@ -56,14 +61,22 @@ def _first_int(values: list[str] | None, default: int) -> int:
         return default
 
 
-def collect_jobs(sources_path: str | Path) -> tuple[list[Job], list[str]]:
+def _max_age_days_from_profile(profile_path: str | Path) -> int:
+    profile = load_profile(profile_path)
+    configured = int(
+        profile.match_settings.get("max_job_age_days_to_store", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])
+    )
+    return max(1, min(30, configured))
+
+
+def collect_jobs(sources_path: str | Path, max_age_days: int = 30) -> tuple[list[Job], list[str]]:
     sources = load_sources(sources_path)
     jobs: list[Job] = []
     errors: list[str] = []
     tasks: list[tuple[str, str]] = []
     settings = {
         "smartrecruiters_pages": _first_int(sources.get("smartrecruiters_pages"), 3),
-        "max_age_days": DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"],
+        "max_age_days": max(1, min(30, max_age_days)),
     }
 
     for source_type, tokens in sources.items():
@@ -114,9 +127,10 @@ def refresh_recommendations(
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> dict[str, object]:
     init_db(db_path)
-    jobs, errors = collect_jobs(sources_path)
-    results = rank_jobs(profile_path, jobs)
     profile = load_profile(profile_path)
+    max_age_days = _max_age_days_from_profile(profile_path)
+    jobs, errors = collect_jobs(sources_path, max_age_days=max_age_days)
+    results = rank_jobs(profile_path, jobs)
     min_score_to_store = int(
         profile.match_settings.get("min_score_to_store", DEFAULT_MATCH_SETTINGS["min_score_to_store"])
     )
@@ -127,7 +141,7 @@ def refresh_recommendations(
         db_path,
     )
     stale_pruned = prune_stale_jobs(
-        int(profile.match_settings.get("max_job_age_days_to_store", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])),
+        max_age_days,
         db_path,
     )
     if pruned or stale_pruned:
@@ -180,7 +194,7 @@ def rescore_existing_jobs(
         db_path,
     )
     stale_pruned = prune_stale_jobs(
-        int(profile.match_settings.get("max_job_age_days_to_store", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])),
+        _max_age_days_from_profile(profile_path),
         db_path,
     )
     if pruned or stale_pruned:

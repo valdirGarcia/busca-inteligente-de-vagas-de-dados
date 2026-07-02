@@ -5,6 +5,7 @@ from urllib.error import HTTPError, URLError
 
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
+from app.collectors.gupy import fetch_gupy_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
@@ -32,6 +33,7 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Board token de empresa no Greenhouse. Pode ser usado varias vezes. Ex: --greenhouse nubank",
     )
+    parser.add_argument("--gupy", type=int, help="Buscar vagas filtradas na Gupy. Valor = paginas por termo.")
     parser.add_argument(
         "--ashby",
         action="append",
@@ -72,6 +74,8 @@ def main() -> None:
         args.ashby.extend(configured_sources["ashby"])
         args.lever.extend(configured_sources["lever"])
         args.greenhouse.extend(configured_sources["greenhouse"])
+        if configured_sources["gupy"] and args.gupy is None:
+            args.gupy = int(configured_sources["gupy"][0])
         args.smartrecruiters.extend(configured_sources["smartrecruiters"])
         args.remotive.extend(configured_sources["remotive"])
         args.remoteok = args.remoteok or bool(configured_sources["remoteok"])
@@ -119,6 +123,15 @@ def main() -> None:
             print(f"Aviso: erro de rede ao buscar Greenhouse '{board_token}': {error.reason}. Pulando fonte.")
             continue
         jobs.extend(board_jobs)
+
+    if args.gupy:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_gupy_jobs(pages_per_term=args.gupy))
+        except HTTPError as error:
+            print(f"Aviso: Gupy retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Gupy: {error.reason}. Pulando fonte.")
 
     for company_slug in args.smartrecruiters:
         attempted_sources += 1

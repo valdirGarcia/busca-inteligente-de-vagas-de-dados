@@ -584,7 +584,7 @@ def settings_tab() -> None:
     with sources_section:
         st.caption(
             "Greenhouse, Lever, Ashby e SmartRecruiters sao ATS por empresa. "
-            "Remotive, RemoteOK, Arbeitnow e Solides ampliam a busca."
+            "Gupy, Remotive, RemoteOK, Arbeitnow e Solides ampliam a busca."
         )
         with st.form("sources-form"):
             source_cols = st.columns(2)
@@ -611,8 +611,8 @@ def settings_tab() -> None:
                 solides_pages = page_cols[1].number_input(
                     "Paginas Solides",
                     min_value=0,
-                    max_value=10,
-                    value=first_int(sources.get("solides"), 5),
+                    max_value=20,
+                    value=first_int(sources.get("solides"), 8),
                     step=1,
                 )
                 smartrecruiters_pages = page_cols[2].number_input(
@@ -622,12 +622,20 @@ def settings_tab() -> None:
                     value=first_int(sources.get("smartrecruiters_pages"), 3),
                     step=1,
                 )
+                gupy_pages = st.number_input(
+                    "Paginas por termo na Gupy",
+                    min_value=0,
+                    max_value=20,
+                    value=first_int(sources.get("gupy"), 5),
+                    step=1,
+                )
             if st.form_submit_button("Salvar fontes", type="primary"):
                 write_yaml(
                     SOURCES_PATH,
                     {
                         "ashby": text_to_list(ashby),
                         "greenhouse": text_to_list(greenhouse),
+                        "gupy": [str(int(gupy_pages))] if gupy_pages else [],
                         "lever": text_to_list(lever),
                         "smartrecruiters": text_to_list(smartrecruiters),
                         "smartrecruiters_pages": [str(int(smartrecruiters_pages))],
