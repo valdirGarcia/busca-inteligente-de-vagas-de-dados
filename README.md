@@ -13,6 +13,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 7. Remove vagas antigas/irrelevantes do banco, preservando candidaturas e vagas manuais.
 8. Filtra recomendacoes por tipo/local: home office, regiao configurada no perfil e presencial fora da regiao.
 9. Evita gravar no SQLite vagas abaixo do match minimo configurado.
+10. Permite filtrar recomendacoes por fonte de vagas.
 
 ## Como rodar
 

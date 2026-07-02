@@ -12,6 +12,7 @@ from app.db import (
     count_jobs,
     dashboard_counts,
     init_db,
+    list_available_sources,
     list_jobs,
     make_job_id,
     parse_json_list,
@@ -158,6 +159,7 @@ def recommendations_tab() -> None:
     match_settings = profile.get("match_settings", {})
     configured_min_score = max(1, int(match_settings.get("min_score_to_show", 1)))
     preferred_locations = yaml_list(profile.get("locations"))
+    source_options = list_available_sources(DB_PATH)
     with st.container(border=True):
         filter_cols = st.columns([1.7, 2.4, 1.0, 1.0, 0.9])
         status_option = filter_cols[0].selectbox(
@@ -190,8 +192,10 @@ def recommendations_tab() -> None:
             selected_job_mode_labels.append("Presencial")
         include_unknown_dates = mode_cols[3].checkbox("Incluir vagas sem data informada", value=False)
         include_international = mode_cols[4].checkbox("Mostrar vagas internacionais", value=False)
+        selected_sources = st.multiselect("Fontes", source_options, default=source_options)
 
     job_modes = [JOB_MODE_OPTIONS[label] for label in selected_job_mode_labels]
+    source_filter = selected_sources if set(selected_sources) != set(source_options) else None
 
     status_map = {
         "Novas e salvas": ["new", "saved"],
@@ -220,6 +224,7 @@ def recommendations_tab() -> None:
         include_international=include_international,
         job_modes=job_modes,
         preferred_locations=preferred_locations,
+        sources=source_filter,
         db_path=DB_PATH,
     )
     rows = list_jobs(
@@ -232,6 +237,7 @@ def recommendations_tab() -> None:
         include_international=include_international,
         job_modes=job_modes,
         preferred_locations=preferred_locations,
+        sources=source_filter,
         db_path=DB_PATH,
         limit=int(display_limit),
     )

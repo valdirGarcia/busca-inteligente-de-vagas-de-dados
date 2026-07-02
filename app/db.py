@@ -139,7 +139,9 @@ def _remote_clause() -> str:
             OR LOWER(COALESCE(location, '')) LIKE '%remot%'
             OR LOWER(COALESCE(location, '')) LIKE '%home office%'
             OR LOWER(COALESCE(location, '')) LIKE '%teletrabalho%'
-            OR LOWER(COALESCE(categories_json, '')) LIKE '%remot%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"is_remote": "true"%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"workplace_type": "remote"%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "remoto"%'
             OR LOWER(COALESCE(categories_json, '')) LIKE '%home office%'
             OR LOWER(COALESCE(categories_json, '')) LIKE '%teletrabalho%'
         )
@@ -310,6 +312,35 @@ def update_job_notes(job_id: str, notes: str, db_path: str | Path = DEFAULT_DB_P
         connection.execute("UPDATE jobs SET notes = ? WHERE id = ?", (notes, job_id))
 
 
+def list_available_sources(db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
+    with connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT source
+            FROM jobs
+            WHERE source IS NOT NULL AND source != ''
+            ORDER BY source
+            """
+        )
+        return [str(row["source"]) for row in rows]
+
+
+def _append_source_filter(
+    clauses: list[str],
+    params: list[object],
+    sources: list[str] | None,
+) -> None:
+    if sources is None:
+        return
+    selected = [source for source in sources if source]
+    if not selected:
+        clauses.append("0")
+        return
+    placeholders = ", ".join("?" for _ in selected)
+    clauses.append(f"source IN ({placeholders})")
+    params.extend(selected)
+
+
 def list_jobs(
     statuses: list[str] | None = None,
     min_score: int = 0,
@@ -320,6 +351,7 @@ def list_jobs(
     include_international: bool = True,
     job_modes: list[str] | None = None,
     preferred_locations: list[str] | None = None,
+    sources: list[str] | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
     limit: int = 200,
 ) -> list[sqlite3.Row]:
@@ -364,6 +396,7 @@ def list_jobs(
         )
 
     _append_job_mode_filter(clauses, params, job_modes, preferred_locations)
+    _append_source_filter(clauses, params, sources)
 
     params.append(limit)
     sql = f"""
@@ -443,6 +476,7 @@ def count_jobs(
     include_international: bool = True,
     job_modes: list[str] | None = None,
     preferred_locations: list[str] | None = None,
+    sources: list[str] | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> int:
     clauses = ["score >= ?"]
@@ -486,6 +520,7 @@ def count_jobs(
         )
 
     _append_job_mode_filter(clauses, params, job_modes, preferred_locations)
+    _append_source_filter(clauses, params, sources)
 
     with connect(db_path) as connection:
         row = connection.execute(f"SELECT COUNT(*) FROM jobs WHERE {' AND '.join(clauses)}", params).fetchone()
