@@ -13,7 +13,17 @@ from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
 from app.collectors.smartrecruiters import fetch_smartrecruiters_jobs
 from app.collectors.solides import fetch_solides_jobs
-from app.db import DEFAULT_DB_PATH, connect, init_db, prune_irrelevant_jobs, prune_stale_jobs, upsert_match_results, vacuum_db
+from app.db import (
+    DEFAULT_DB_PATH,
+    connect,
+    create_search_run,
+    init_db,
+    prune_irrelevant_jobs,
+    prune_stale_jobs,
+    upsert_match_results,
+    utc_now,
+    vacuum_db,
+)
 from app.matcher import DEFAULT_MATCH_SETTINGS, score_job
 from app.models import Job, MatchResult
 from app.profile_loader import load_profile
@@ -127,6 +137,7 @@ def refresh_recommendations(
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> dict[str, object]:
     init_db(db_path)
+    started_at = utc_now()
     profile = load_profile(profile_path)
     max_age_days = _max_age_days_from_profile(profile_path)
     jobs, errors = collect_jobs(sources_path, max_age_days=max_age_days)
@@ -154,7 +165,9 @@ def refresh_recommendations(
     )
     if pruned or stale_pruned:
         vacuum_db(db_path)
-    return {
+    summary = {
+        "started_at": started_at,
+        "finished_at": utc_now(),
         "fetched": len(jobs),
         "ranked": len(results),
         "eligible": len(storable_results),
@@ -165,6 +178,8 @@ def refresh_recommendations(
         "fetched_by_source": fetched_by_source,
         "eligible_by_source": eligible_by_source,
     }
+    summary["run_id"] = create_search_run(summary, db_path)
+    return summary
 
 
 def rescore_existing_jobs(

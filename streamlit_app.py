@@ -18,6 +18,7 @@ from app.db import (
     init_db,
     list_available_sources,
     list_jobs,
+    list_search_runs,
     make_job_id,
     parse_json_list,
     upsert_match_results,
@@ -48,6 +49,18 @@ JOB_MODE_OPTIONS = {
     "Hibrido na regiao": "region_hybrid",
     "Fora da regiao": "outside_region",
 }
+
+IGNORE_REASON_OPTIONS = [
+    "Localidade fora da preferencia",
+    "Senioridade desalinhada",
+    "Stack pouco aderente",
+    "Cargo fora do foco",
+    "Salario nao compensa",
+    "Empresa/setor pouco interessante",
+    "Vaga repetida",
+    "Descricao fraca ou vaga confusa",
+    "Outro",
+]
 
 
 def read_text(path: Path) -> str:
@@ -120,13 +133,25 @@ def contains_term(text: str, term: str) -> bool:
     return re.search(pattern, normalized_text) is not None
 
 
-def set_status(job_id: str, status: str) -> None:
-    update_job_status(job_id, status, DB_PATH)
+def set_status(job_id: str, status: str, ignored_reason: str = "") -> None:
+    update_job_status(job_id, status, DB_PATH, ignored_reason=ignored_reason)
     st.rerun()
 
 
 def row_list(row, column: str) -> list[str]:
     return parse_json_list(row[column])
+
+
+def parse_json_dict(value: str | None) -> dict[str, object]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(parsed, dict):
+        return {str(key): item for key, item in parsed.items()}
+    return {}
 
 
 def row_score_details(row) -> list[dict[str, object]]:
@@ -324,6 +349,8 @@ def show_job_card(row, index: int, preferred_locations: list[str]) -> None:
 
         contact = row["contact_email"] or "Nao encontrado na descricao"
         st.caption(f"Contato/e-mail: {contact}")
+        if row["status"] == "ignored" and row["ignored_reason"]:
+            st.caption(f"Motivo para ignorar: {row['ignored_reason']}")
 
         action_cols = st.columns([1.2, 1, 1, 1, 3])
         if row["url"]:
@@ -332,8 +359,21 @@ def show_job_card(row, index: int, preferred_locations: list[str]) -> None:
             set_status(row["id"], "saved")
         if action_cols[2].button("Candidatei", key=f"applied-{row['id']}-{index}", type="primary"):
             set_status(row["id"], "applied")
-        if action_cols[3].button("Ignorar", key=f"ignore-{row['id']}-{index}"):
-            set_status(row["id"], "ignored")
+        with action_cols[3]:
+            with st.popover("Ignorar"):
+                ignore_reason = st.selectbox(
+                    "Motivo",
+                    IGNORE_REASON_OPTIONS,
+                    key=f"ignore-reason-{row['id']}-{index}",
+                )
+                ignore_detail = st.text_input(
+                    "Detalhe opcional",
+                    key=f"ignore-detail-{row['id']}-{index}",
+                    placeholder="Ex: pede senior, longe demais...",
+                )
+                reason_text = ignore_reason if not ignore_detail.strip() else f"{ignore_reason}: {ignore_detail.strip()}"
+                if st.button("Confirmar ignorar", key=f"confirm-ignore-{row['id']}-{index}", type="primary"):
+                    set_status(row["id"], "ignored", reason_text)
 
 
 def recommendations_tab() -> None:
@@ -452,12 +492,41 @@ def recommendations_tab() -> None:
         show_job_card(row, index, preferred_locations)
 
 
+def jobs_export_df(rows) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "cargo": row["title"],
+                "empresa": row["company"],
+                "localizacao": row["location"],
+                "fonte": row["source"],
+                "publicada_em": format_date(row["published_at"]),
+                "match": row["score"],
+                "status": row["status"],
+                "candidatado_em": row["applied_at"] or "",
+                "contato_email": row["contact_email"] or "",
+                "link": row["url"] or "",
+                "notas": row["notes"] or "",
+            }
+            for row in rows
+        ]
+    )
+
+
 def applications_tab() -> None:
     st.subheader("Candidaturas")
     rows = list_jobs(statuses=["applied"], min_score=0, db_path=DB_PATH)
     if not rows:
         st.info("Nenhuma candidatura registrada ainda.")
         return
+
+    export_df = jobs_export_df(rows)
+    st.download_button(
+        "Baixar candidaturas CSV",
+        data=export_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"candidaturas_{datetime.now().date().isoformat()}.csv",
+        mime="text/csv",
+    )
 
     for index, row in enumerate(rows):
         with st.container(border=True):
@@ -617,6 +686,15 @@ def dashboard_tab() -> None:
         st.markdown("**Empresas com melhor sinal**")
         st.dataframe(companies_df, hide_index=True, use_container_width=True)
 
+    ignored_reasons_df = pd.DataFrame(counts["ignored_reasons"])
+    if not ignored_reasons_df.empty:
+        st.markdown("**Motivos das vagas ignoradas**")
+        st.dataframe(
+            ignored_reasons_df.rename(columns={"reason": "Motivo", "total": "Total"}),
+            hide_index=True,
+            use_container_width=True,
+        )
+
     last_refresh = st.session_state.get("last_refresh_summary")
     if last_refresh:
         with st.expander("Ultima busca desta sessao"):
@@ -635,6 +713,43 @@ def dashboard_tab() -> None:
                     hide_index=True,
                     use_container_width=True,
                 )
+
+    search_runs = list_search_runs(DB_PATH, limit=10)
+    if search_runs:
+        st.markdown("**Historico de buscas**")
+        runs_df = pd.DataFrame(
+            [
+                {
+                    "Inicio": format_date(run["started_at"]),
+                    "Coletadas": run["fetched"],
+                    "Ranqueadas": run["ranked"],
+                    "Elegiveis": run["eligible"],
+                    "Atualizadas": run["saved"],
+                    "Removidas": int(run["pruned"]) + int(run["stale_pruned"]),
+                    "Avisos": len(parse_json_list(run["errors_json"])),
+                }
+                for run in search_runs
+            ]
+        )
+        st.dataframe(runs_df, hide_index=True, use_container_width=True)
+
+        latest_run = search_runs[0]
+        fetched_by_source = parse_json_dict(latest_run["fetched_by_source_json"])
+        eligible_by_source = parse_json_dict(latest_run["eligible_by_source_json"])
+        if fetched_by_source or eligible_by_source:
+            source_names = sorted({*fetched_by_source.keys(), *eligible_by_source.keys()})
+            latest_source_df = pd.DataFrame(
+                [
+                    {
+                        "Fonte": source,
+                        "Coletadas": int(fetched_by_source.get(source, 0)),
+                        "Elegiveis": int(eligible_by_source.get(source, 0)),
+                    }
+                    for source in source_names
+                ]
+            )
+            with st.expander("Ultima busca gravada por fonte"):
+                st.dataframe(latest_source_df, hide_index=True, use_container_width=True)
 
 
 def settings_tab() -> None:

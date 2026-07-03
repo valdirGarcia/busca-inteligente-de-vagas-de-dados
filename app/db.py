@@ -51,6 +51,8 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
                 contact_email TEXT,
                 status TEXT NOT NULL DEFAULT 'new',
                 notes TEXT,
+                ignored_reason TEXT,
+                ignored_at TEXT,
                 first_seen_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
                 applied_at TEXT
@@ -65,6 +67,28 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             connection.execute("ALTER TABLE jobs ADD COLUMN published_at TEXT")
         if "score_details_json" not in columns:
             connection.execute("ALTER TABLE jobs ADD COLUMN score_details_json TEXT")
+        if "ignored_reason" not in columns:
+            connection.execute("ALTER TABLE jobs ADD COLUMN ignored_reason TEXT")
+        if "ignored_at" not in columns:
+            connection.execute("ALTER TABLE jobs ADD COLUMN ignored_at TEXT")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS search_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                fetched INTEGER NOT NULL DEFAULT 0,
+                ranked INTEGER NOT NULL DEFAULT 0,
+                eligible INTEGER NOT NULL DEFAULT 0,
+                saved INTEGER NOT NULL DEFAULT 0,
+                pruned INTEGER NOT NULL DEFAULT 0,
+                stale_pruned INTEGER NOT NULL DEFAULT 0,
+                errors_json TEXT,
+                fetched_by_source_json TEXT,
+                eligible_by_source_json TEXT
+            )
+            """
+        )
 
 
 def make_job_id(job: Job) -> str:
@@ -332,25 +356,86 @@ def upsert_match_results(results: Iterable[MatchResult], db_path: str | Path = D
     return len(rows)
 
 
-def update_job_status(job_id: str, status: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
+def update_job_status(
+    job_id: str,
+    status: str,
+    db_path: str | Path = DEFAULT_DB_PATH,
+    ignored_reason: str = "",
+) -> None:
     if status not in STATUSES:
         raise ValueError(f"Status invalido: {status}")
     applied_at = utc_now() if status == "applied" else None
+    ignored_at = utc_now() if status == "ignored" else None
+    reason = ignored_reason.strip() if status == "ignored" else ""
     with connect(db_path) as connection:
         connection.execute(
             """
             UPDATE jobs
             SET status = ?,
-                applied_at = COALESCE(?, applied_at)
+                applied_at = COALESCE(?, applied_at),
+                ignored_at = CASE
+                    WHEN ? = 'ignored' THEN ?
+                    WHEN ? IN ('new', 'saved', 'applied') THEN NULL
+                    ELSE ignored_at
+                END,
+                ignored_reason = CASE
+                    WHEN ? = 'ignored' THEN ?
+                    WHEN ? IN ('new', 'saved', 'applied') THEN ''
+                    ELSE ignored_reason
+                END
             WHERE id = ?
             """,
-            (status, applied_at, job_id),
+            (status, applied_at, status, ignored_at, status, status, reason, status, job_id),
         )
 
 
 def update_job_notes(job_id: str, notes: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
     with connect(db_path) as connection:
         connection.execute("UPDATE jobs SET notes = ? WHERE id = ?", (notes, job_id))
+
+
+def create_search_run(summary: dict[str, object], db_path: str | Path = DEFAULT_DB_PATH) -> int:
+    started_at = str(summary.get("started_at") or utc_now())
+    finished_at = str(summary.get("finished_at") or utc_now())
+    with connect(db_path) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO search_runs (
+                started_at, finished_at, fetched, ranked, eligible, saved,
+                pruned, stale_pruned, errors_json, fetched_by_source_json, eligible_by_source_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                started_at,
+                finished_at,
+                int(summary.get("fetched", 0)),
+                int(summary.get("ranked", 0)),
+                int(summary.get("eligible", 0)),
+                int(summary.get("saved", 0)),
+                int(summary.get("pruned", 0)),
+                int(summary.get("stale_pruned", 0)),
+                _json(summary.get("errors", [])),
+                _json(summary.get("fetched_by_source", {})),
+                _json(summary.get("eligible_by_source", {})),
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+def list_search_runs(db_path: str | Path = DEFAULT_DB_PATH, limit: int = 10) -> list[sqlite3.Row]:
+    with connect(db_path) as connection:
+        return list(
+            connection.execute(
+                """
+                SELECT *
+                FROM search_runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        )
 
 
 def list_available_sources(db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
@@ -497,12 +582,27 @@ def dashboard_counts(db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, object]
                 """
             )
         ]
+        ignored_reasons = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT
+                    COALESCE(NULLIF(ignored_reason, ''), 'Sem motivo informado') AS reason,
+                    COUNT(*) AS total
+                FROM jobs
+                WHERE status = 'ignored'
+                GROUP BY reason
+                ORDER BY total DESC, reason
+                """
+            )
+        ]
     return {
         "total": total,
         "avg_score": avg_score,
         "by_status": by_status,
         "by_source": by_source,
         "top_companies": top_companies,
+        "ignored_reasons": ignored_reasons,
     }
 
 

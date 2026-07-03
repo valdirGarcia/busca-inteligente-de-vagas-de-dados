@@ -16,6 +16,9 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 10. Permite filtrar recomendacoes por fonte de vagas.
 11. Mostra badges de local/modalidade e uma explicacao numerica do match por componente.
 12. Permite ativar/desativar fontes na aba de configuracoes.
+13. Registra motivo ao ignorar uma vaga e consolida esses motivos no dashboard.
+14. Exporta candidaturas em CSV.
+15. Mantem historico das buscas executadas e do volume coletado/elegivel por fonte.
 
 ## Como rodar
 
