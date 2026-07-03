@@ -47,6 +47,7 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
                 matched_domains_json TEXT,
                 gaps_json TEXT,
                 reasons_json TEXT,
+                score_details_json TEXT,
                 contact_email TEXT,
                 status TEXT NOT NULL DEFAULT 'new',
                 notes TEXT,
@@ -62,6 +63,8 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
         if "published_at" not in columns:
             connection.execute("ALTER TABLE jobs ADD COLUMN published_at TEXT")
+        if "score_details_json" not in columns:
+            connection.execute("ALTER TABLE jobs ADD COLUMN score_details_json TEXT")
 
 
 def make_job_id(job: Job) -> str:
@@ -148,6 +151,18 @@ def _remote_clause() -> str:
     """
 
 
+def _hybrid_clause() -> str:
+    return """
+        (
+            LOWER(COALESCE(location, '')) LIKE '%hibrid%'
+            OR LOWER(COALESCE(location, '')) LIKE '%hybrid%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"workplace_type": "hybrid"%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "hibrido"%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "híbrido"%'
+        )
+    """
+
+
 def _region_clause(preferred_locations: list[str] | None) -> tuple[str, list[object]]:
     terms = _preferred_region_terms(preferred_locations)
     if not terms:
@@ -161,34 +176,58 @@ def _append_job_mode_filter(
     params: list[object],
     job_modes: list[str] | None,
     preferred_locations: list[str] | None,
+    selected_locations: list[str] | None = None,
 ) -> None:
     if job_modes is None:
         return
 
-    selected = {mode for mode in job_modes if mode in {"home_office", "region", "onsite"}}
+    valid_modes = {
+        "remote",
+        "home_office",
+        "region",
+        "region_onsite",
+        "region_hybrid",
+        "hybrid",
+        "outside_region",
+        "onsite",
+    }
+    selected = {mode for mode in job_modes if mode in valid_modes}
     if not selected:
         clauses.append("0")
         return
-    if selected == {"home_office", "region", "onsite"}:
+
+    current_ui_modes = {"remote", "region_onsite", "region_hybrid", "outside_region"}
+    if current_ui_modes.issubset(selected) and not selected_locations:
         return
 
     remote_clause = _remote_clause()
-    region_clause, region_params = _region_clause(preferred_locations)
+    hybrid_clause = _hybrid_clause()
+    region_filter_locations = selected_locations or preferred_locations
+    region_clause, region_params = _region_clause(region_filter_locations)
+    full_region_clause, full_region_params = _region_clause(preferred_locations)
     mode_clauses = []
     mode_params: list[object] = []
 
-    if "home_office" in selected:
+    if {"remote", "home_office"} & selected:
         mode_clauses.append(remote_clause)
     if "region" in selected:
         mode_clauses.append(region_clause)
         mode_params.extend(region_params)
-    if "onsite" in selected:
-        onsite_clause = f"(NOT {remote_clause}"
-        if region_clause != "0":
-            onsite_clause += f" AND NOT {region_clause}"
-            mode_params.extend(region_params)
-        onsite_clause += ")"
-        mode_clauses.append(onsite_clause)
+    if "region_onsite" in selected:
+        mode_clauses.append(f"({region_clause} AND NOT {remote_clause} AND NOT {hybrid_clause})")
+        mode_params.extend(region_params)
+    if "region_hybrid" in selected:
+        mode_clauses.append(f"({region_clause} AND {hybrid_clause})")
+        mode_params.extend(region_params)
+    if "hybrid" in selected:
+        mode_clauses.append(hybrid_clause)
+    if {"outside_region", "onsite"} & selected:
+        outside_clause = f"(NOT {remote_clause}"
+        if full_region_clause != "0":
+            outside_clause += f" AND NOT {full_region_clause}"
+            mode_params.extend(full_region_params)
+        outside_clause += ")"
+        mode_clauses.append(outside_clause)
 
     clauses.append("(" + " OR ".join(mode_clauses) + ")")
     params.extend(mode_params)
@@ -254,6 +293,7 @@ def upsert_match_results(results: Iterable[MatchResult], db_path: str | Path = D
                 _json(result.matched_domains),
                 _json(result.gaps),
                 _json(result.reasons),
+                _json(result.score_details),
                 extract_contact_email(job),
                 now,
                 now,
@@ -266,9 +306,9 @@ def upsert_match_results(results: Iterable[MatchResult], db_path: str | Path = D
             INSERT INTO jobs (
                 id, title, company, location, url, description, source, published_at, categories_json,
                 score, matched_skills_json, matched_domains_json, gaps_json, reasons_json,
-                contact_email, first_seen_at, last_seen_at
+                score_details_json, contact_email, first_seen_at, last_seen_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 company = excluded.company,
@@ -283,6 +323,7 @@ def upsert_match_results(results: Iterable[MatchResult], db_path: str | Path = D
                 matched_domains_json = excluded.matched_domains_json,
                 gaps_json = excluded.gaps_json,
                 reasons_json = excluded.reasons_json,
+                score_details_json = excluded.score_details_json,
                 contact_email = excluded.contact_email,
                 last_seen_at = excluded.last_seen_at
             """,
@@ -351,6 +392,7 @@ def list_jobs(
     include_international: bool = True,
     job_modes: list[str] | None = None,
     preferred_locations: list[str] | None = None,
+    selected_locations: list[str] | None = None,
     sources: list[str] | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
     limit: int = 200,
@@ -395,7 +437,7 @@ def list_jobs(
             """
         )
 
-    _append_job_mode_filter(clauses, params, job_modes, preferred_locations)
+    _append_job_mode_filter(clauses, params, job_modes, preferred_locations, selected_locations)
     _append_source_filter(clauses, params, sources)
 
     params.append(limit)
@@ -430,7 +472,17 @@ def dashboard_counts(db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, object]
         by_source = [
             dict(row)
             for row in connection.execute(
-                "SELECT source, COUNT(*) AS total FROM jobs GROUP BY source ORDER BY total DESC"
+                """
+                SELECT
+                    source,
+                    COUNT(*) AS total,
+                    COALESCE(ROUND(AVG(score), 1), 0) AS avg_score,
+                    MAX(score) AS best_score,
+                    SUM(CASE WHEN score >= 40 THEN 1 ELSE 0 END) AS strong_matches
+                FROM jobs
+                GROUP BY source
+                ORDER BY total DESC
+                """
             )
         ]
         top_companies = [
@@ -476,6 +528,7 @@ def count_jobs(
     include_international: bool = True,
     job_modes: list[str] | None = None,
     preferred_locations: list[str] | None = None,
+    selected_locations: list[str] | None = None,
     sources: list[str] | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> int:
@@ -519,7 +572,7 @@ def count_jobs(
             """
         )
 
-    _append_job_mode_filter(clauses, params, job_modes, preferred_locations)
+    _append_job_mode_filter(clauses, params, job_modes, preferred_locations, selected_locations)
     _append_source_filter(clauses, params, sources)
 
     with connect(db_path) as connection:

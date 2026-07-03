@@ -148,41 +148,65 @@ def score_job(profile: Profile, job: Job) -> MatchResult:
     )
 
     score = 0
+    score_details: list[dict[str, object]] = []
+
+    def add_score(component: str, points: int, detail: str) -> None:
+        nonlocal score
+        score += points
+        score_details.append(
+            {
+                "component": component,
+                "points": points,
+                "detail": detail,
+            }
+        )
+
     if profile.core_skills:
-        score += round(match_setting(profile, "core_skills_weight") * len(matched_core) / len(profile.core_skills))
+        points = round(match_setting(profile, "core_skills_weight") * len(matched_core) / len(profile.core_skills))
+        add_score("Skills fortes", points, f"{len(matched_core)}/{len(profile.core_skills)} skills fortes citadas")
     if profile.nice_to_have_skills:
-        score += round(
+        points = round(
             match_setting(profile, "nice_to_have_skills_weight")
             * len(matched_nice)
             / len(profile.nice_to_have_skills)
         )
+        add_score(
+            "Skills complementares",
+            points,
+            f"{len(matched_nice)}/{len(profile.nice_to_have_skills)} skills complementares citadas",
+        )
     if profile.business_domains:
-        score += round(
+        points = round(
             match_setting(profile, "business_domain_weight")
             * min(len(matched_domains), 4)
             / min(len(profile.business_domains), 4)
         )
+        add_score("Dominio de negocio", points, f"{len(matched_domains)} dominio(s) alinhado(s)")
     if priority_role_match:
-        score += match_setting(profile, "priority_role_weight")
+        add_score("Cargo", match_setting(profile, "priority_role_weight"), "cargo prioritario no titulo")
     elif role_match:
-        score += match_setting(profile, "target_role_weight")
+        add_score("Cargo", match_setting(profile, "target_role_weight"), "cargo semelhante aceito no titulo")
     else:
-        score += match_setting(profile, "no_role_penalty")
+        add_score("Cargo", match_setting(profile, "no_role_penalty"), "titulo fora do foco principal")
     if seniority_match:
-        score += match_setting(profile, "seniority_weight")
-    if location_match:
-        score += match_setting(profile, "location_weight")
+        add_score("Senioridade", match_setting(profile, "seniority_weight"), "senioridade alinhada")
     else:
-        score += match_setting(profile, "missing_location_penalty")
+        add_score("Senioridade", 0, "senioridade nao detectada no titulo")
+    if location_match:
+        add_score("Localidade", match_setting(profile, "location_weight"), "localidade aceita")
+    else:
+        add_score("Localidade", match_setting(profile, "missing_location_penalty"), "localidade fora da preferencia")
     if profile.min_junior_salary_brl and _contains(job.title, "junior"):
         salary_values = _extract_brl_values(searchable)
         flexible_junior = any(_contains_normalized(normalized_title, role) for role in profile.flexible_junior_roles)
         if salary_values and max(salary_values) >= profile.min_junior_salary_brl:
-            score += match_setting(profile, "junior_salary_bonus")
+            add_score("Salario junior", match_setting(profile, "junior_salary_bonus"), "salario junior dentro do minimo")
         elif salary_values and not flexible_junior:
-            score += match_setting(profile, "junior_salary_penalty")
+            add_score("Salario junior", match_setting(profile, "junior_salary_penalty"), "salario junior abaixo do minimo")
+        else:
+            add_score("Salario junior", 0, "salario nao informado ou cargo junior flexivel")
     if avoid_hit:
-        score += match_setting(profile, "avoid_penalty")
+        add_score("Penalizacao", match_setting(profile, "avoid_penalty"), "termo de penalizacao encontrado")
 
     score = max(0, min(100, score))
 
@@ -215,4 +239,5 @@ def score_job(profile: Profile, job: Job) -> MatchResult:
         matched_domains=matched_domains,
         gaps=gaps[:5],
         reasons=reasons,
+        score_details=score_details,
     )

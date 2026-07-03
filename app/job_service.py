@@ -131,10 +131,18 @@ def refresh_recommendations(
     max_age_days = _max_age_days_from_profile(profile_path)
     jobs, errors = collect_jobs(sources_path, max_age_days=max_age_days)
     results = rank_jobs(profile_path, jobs)
+    fetched_by_source: dict[str, int] = {}
+    for job in jobs:
+        fetched_by_source[job.source] = fetched_by_source.get(job.source, 0) + 1
+
     min_score_to_store = int(
         profile.match_settings.get("min_score_to_store", DEFAULT_MATCH_SETTINGS["min_score_to_store"])
     )
     storable_results = [result for result in results if result.score >= min_score_to_store]
+    eligible_by_source: dict[str, int] = {}
+    for result in storable_results:
+        source = result.job.source
+        eligible_by_source[source] = eligible_by_source.get(source, 0) + 1
     saved = upsert_match_results(storable_results, db_path)
     pruned = prune_irrelevant_jobs(
         min_score_to_store,
@@ -154,6 +162,8 @@ def refresh_recommendations(
         "pruned": pruned,
         "stale_pruned": stale_pruned,
         "errors": errors,
+        "fetched_by_source": fetched_by_source,
+        "eligible_by_source": eligible_by_source,
     }
 
 

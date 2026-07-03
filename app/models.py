@@ -45,3 +45,4 @@ class MatchResult:
     matched_domains: list[str]
     gaps: list[str]
     reasons: list[str]
+    score_details: list[dict[str, object]]

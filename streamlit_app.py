@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import html
+import json
+import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -39,9 +43,10 @@ STATUS_LABELS = {
 }
 
 JOB_MODE_OPTIONS = {
-    "Home office": "home_office",
-    "Regiao": "region",
-    "Presencial": "onsite",
+    "Remoto": "remote",
+    "Presencial na regiao": "region_onsite",
+    "Hibrido na regiao": "region_hybrid",
+    "Fora da regiao": "outside_region",
 }
 
 
@@ -99,6 +104,22 @@ def format_date(value: str | None) -> str:
     return parsed.date().isoformat()
 
 
+def normalize_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.lower())
+    without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
+    without_punctuation = re.sub(r"[^a-z0-9]+", " ", without_accents)
+    return re.sub(r"\s+", " ", without_punctuation).strip()
+
+
+def contains_term(text: str, term: str) -> bool:
+    normalized_text = normalize_text(text)
+    normalized_term = normalize_text(term)
+    if not normalized_term:
+        return False
+    pattern = r"(?<![a-z0-9])" + re.escape(normalized_term) + r"(?![a-z0-9])"
+    return re.search(pattern, normalized_text) is not None
+
+
 def set_status(job_id: str, status: str) -> None:
     update_job_status(job_id, status, DB_PATH)
     st.rerun()
@@ -108,11 +129,164 @@ def row_list(row, column: str) -> list[str]:
     return parse_json_list(row[column])
 
 
-def show_job_card(row, index: int) -> None:
+def row_score_details(row) -> list[dict[str, object]]:
+    try:
+        value = row["score_details_json"]
+    except (IndexError, KeyError):
+        value = ""
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    details = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        try:
+            points = int(item.get("points", 0))
+        except (TypeError, ValueError):
+            points = 0
+        details.append(
+            {
+                "component": str(item.get("component") or ""),
+                "points": points,
+                "detail": str(item.get("detail") or ""),
+            }
+        )
+    return details
+
+
+def row_categories(row) -> dict[str, str]:
+    try:
+        parsed = json.loads(row["categories_json"] or "{}")
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(parsed, dict):
+        return {str(key): str(value) for key, value in parsed.items()}
+    return {}
+
+
+def row_is_remote(row, categories: dict[str, str]) -> bool:
+    location = normalize_text(row["location"] or "")
+    is_remote = normalize_text(categories.get("is_remote", ""))
+    workplace_type = normalize_text(categories.get("workplace_type", ""))
+    job_type = normalize_text(categories.get("job_type", ""))
+    category_text = normalize_text(" ".join(categories.values()))
+    return (
+        row["source"] in {"remotive", "remoteok"}
+        or "remot" in location
+        or "home office" in location
+        or "teletrabalho" in location
+        or is_remote == "true"
+        or workplace_type == "remote"
+        or job_type == "remoto"
+        or "home office" in category_text
+        or "teletrabalho" in category_text
+    )
+
+
+def row_is_hybrid(row, categories: dict[str, str]) -> bool:
+    location = normalize_text(row["location"] or "")
+    workplace_type = normalize_text(categories.get("workplace_type", ""))
+    job_type = normalize_text(categories.get("job_type", ""))
+    return "hibrid" in location or "hybrid" in location or workplace_type == "hybrid" or job_type == "hibrido"
+
+
+def row_is_region(row, preferred_locations: list[str]) -> bool:
+    location = row["location"] or ""
+    return any(contains_term(location, location_term) for location_term in preferred_locations)
+
+
+def pill(label: str, tone: str = "default") -> str:
+    colors = {
+        "default": ("#252936", "#d8dee9"),
+        "good": ("#123524", "#8df0bc"),
+        "warn": ("#3a2f12", "#ffd36e"),
+        "bad": ("#3a1821", "#ff9bad"),
+        "info": ("#152c45", "#8ecbff"),
+    }
+    background, foreground = colors.get(tone, colors["default"])
+    safe_label = html.escape(label)
+    return (
+        f"<span style='display:inline-block;padding:3px 9px;margin:0 6px 6px 0;"
+        f"border-radius:999px;background:{background};color:{foreground};"
+        f"font-size:12px;font-weight:700;'>{safe_label}</span>"
+    )
+
+
+def job_badges(row, preferred_locations: list[str]) -> str:
+    categories = row_categories(row)
+    badges = [pill(str(row["source"]).upper(), "info")]
+    remote = row_is_remote(row, categories)
+    hybrid = row_is_hybrid(row, categories)
+    region = row_is_region(row, preferred_locations)
+
+    if remote:
+        badges.append(pill("Remoto", "good"))
+        badges.append(pill("Aceito remoto", "good"))
+    elif hybrid and region:
+        badges.append(pill("Hibrido na regiao", "good"))
+    elif hybrid:
+        badges.append(pill("Hibrido fora da regiao", "bad"))
+    elif region:
+        badges.append(pill("Presencial na regiao", "good"))
+    elif not remote and row["location"]:
+        badges.append(pill("Fora da regiao", "bad"))
+    elif not remote:
+        badges.append(pill("Local incerto", "warn"))
+
+    return "".join(badges)
+
+
+def match_component_lines(row) -> list[str]:
+    matched_skills = row_list(row, "matched_skills_json")
+    matched_domains = row_list(row, "matched_domains_json")
+    gaps = row_list(row, "gaps_json")
+    reasons = row_list(row, "reasons_json")
+
+    cargo = "alinhado" if "cargo alinhado" in reasons or "cargo prioritario" in reasons else "fora do foco"
+    seniority = "alinhada" if "senioridade alinhada" in reasons else "nao detectada"
+    location = "alinhada" if "localizacao alinhada" in reasons else "fora da preferencia"
+    domains = ", ".join(matched_domains[:5]) if matched_domains else "sem dominio forte detectado"
+    penalties = [reason for reason in reasons if "exclusao" in reason or "fora" in reason]
+
+    return [
+        f"Cargo: {cargo}.",
+        f"Skills: {len(matched_skills)} encontradas; {len(gaps)} skills suas nao citadas.",
+        f"Senioridade: {seniority}.",
+        f"Localidade: {location}.",
+        f"Dominio: {domains}.",
+        f"Penalidades/sinais fracos: {', '.join(penalties) if penalties else 'nenhum sinal critico detectado'}.",
+    ]
+
+
+def match_detail_table(row) -> tuple[pd.DataFrame, int]:
+    details = row_score_details(row)
+    raw_score = sum(int(item["points"]) for item in details)
+    table = pd.DataFrame(
+        [
+            {
+                "Componente": item["component"],
+                "Impacto": f"{int(item['points']):+d}",
+                "Detalhe": item["detail"],
+            }
+            for item in details
+        ]
+    )
+    return table, raw_score
+
+
+def show_job_card(row, index: int, preferred_locations: list[str]) -> None:
     with st.container(border=True):
         title_col, score_col = st.columns([5, 1])
         with title_col:
             st.markdown(f"#### {row['title']}")
+            st.markdown(job_badges(row, preferred_locations), unsafe_allow_html=True)
             st.caption(
                 f"{row['company']} | {row['location'] or 'Local nao informado'} | "
                 f"{row['source']} | Publicada: {format_date(row['published_at'])} | "
@@ -138,6 +312,15 @@ def show_job_card(row, index: int) -> None:
         if reasons:
             details.append(f"Motivos: {', '.join(reasons)}")
         st.write("  \n".join(details) if details else "Sem sinais fortes encontrados.")
+        with st.expander("Ver explicacao do match"):
+            score_table, raw_score = match_detail_table(row)
+            if not score_table.empty:
+                st.table(score_table)
+                st.caption(f"Score bruto: {raw_score}. Score exibido: {row['score']}%, limitado entre 0 e 100.")
+            else:
+                st.caption("Detalhamento numerico disponivel apos buscar ou recalcular o banco.")
+                for line in match_component_lines(row):
+                    st.write(line)
 
         contact = row["contact_email"] or "Nao encontrado na descricao"
         st.caption(f"Contato/e-mail: {contact}")
@@ -181,18 +364,34 @@ def recommendations_tab() -> None:
         )
         display_limit = filter_cols[4].number_input("Qtd. exibida", min_value=20, max_value=1000, value=300, step=20)
 
-        st.markdown("**Tipo/local**")
-        mode_cols = st.columns([1.0, 1.0, 1.0, 1.6, 1.6])
+        st.markdown("**Modalidade e local**")
+        mode_cols = st.columns(4)
         selected_job_mode_labels = []
-        if mode_cols[0].checkbox("Home office", value=True):
-            selected_job_mode_labels.append("Home office")
-        if mode_cols[1].checkbox("Regiao", value=True):
-            selected_job_mode_labels.append("Regiao")
-        if mode_cols[2].checkbox("Presencial", value=False):
-            selected_job_mode_labels.append("Presencial")
-        include_unknown_dates = mode_cols[3].checkbox("Incluir vagas sem data informada", value=False)
-        include_international = mode_cols[4].checkbox("Mostrar vagas internacionais", value=False)
-        selected_sources = st.multiselect("Fontes", source_options, default=source_options)
+        if mode_cols[0].checkbox("Remoto", value=True):
+            selected_job_mode_labels.append("Remoto")
+        if mode_cols[1].checkbox("Presencial na regiao", value=True):
+            selected_job_mode_labels.append("Presencial na regiao")
+        if mode_cols[2].checkbox("Hibrido na regiao", value=True):
+            selected_job_mode_labels.append("Hibrido na regiao")
+        if mode_cols[3].checkbox("Fora da regiao", value=False):
+            selected_job_mode_labels.append("Fora da regiao")
+        option_cols = st.columns(2)
+        include_unknown_dates = option_cols[0].checkbox("Incluir vagas sem data informada", value=False)
+        include_international = option_cols[1].checkbox("Mostrar vagas internacionais", value=False)
+        extra_filter_cols = st.columns([1.2, 1.8])
+        selected_locations = extra_filter_cols[0].multiselect(
+            "Cidades da regiao",
+            preferred_locations,
+            default=[],
+            placeholder="Todas as cidades",
+            help="Vazio usa todas as cidades do perfil. Este filtro refina apenas o bloco Regiao.",
+        )
+        selected_sources = extra_filter_cols[1].multiselect(
+            "Fontes",
+            source_options,
+            default=source_options,
+            placeholder="Todas as fontes",
+        )
 
     job_modes = [JOB_MODE_OPTIONS[label] for label in selected_job_mode_labels]
     source_filter = selected_sources if set(selected_sources) != set(source_options) else None
@@ -224,6 +423,7 @@ def recommendations_tab() -> None:
         include_international=include_international,
         job_modes=job_modes,
         preferred_locations=preferred_locations,
+        selected_locations=selected_locations,
         sources=source_filter,
         db_path=DB_PATH,
     )
@@ -237,6 +437,7 @@ def recommendations_tab() -> None:
         include_international=include_international,
         job_modes=job_modes,
         preferred_locations=preferred_locations,
+        selected_locations=selected_locations,
         sources=source_filter,
         db_path=DB_PATH,
         limit=int(display_limit),
@@ -248,7 +449,7 @@ def recommendations_tab() -> None:
         return
 
     for index, row in enumerate(rows):
-        show_job_card(row, index)
+        show_job_card(row, index, preferred_locations)
 
 
 def applications_tab() -> None:
@@ -317,16 +518,59 @@ def manual_job_tab() -> None:
 
 def dashboard_tab() -> None:
     st.subheader("Dashboard")
+    profile = read_yaml(PROFILE_PATH)
+    match_settings = {**DEFAULT_MATCH_SETTINGS, **profile.get("match_settings", {})}
+    min_score_to_show = max(1, int(match_settings["min_score_to_show"]))
+    min_score_to_store = max(1, int(match_settings["min_score_to_store"]))
+    preferred_locations = yaml_list(profile.get("locations"))
+    default_job_modes = ["remote", "region_onsite", "region_hybrid"]
+
     counts = dashboard_counts(DB_PATH)
     by_status = counts["by_status"]
+    recent_count = count_jobs(max_age_days=30, include_unknown_dates=False, db_path=DB_PATH)
+    eligible_count = count_jobs(
+        min_score=min_score_to_store,
+        max_age_days=30,
+        include_unknown_dates=False,
+        db_path=DB_PATH,
+    )
+    recommended_count = count_jobs(
+        statuses=["new", "saved"],
+        min_score=min_score_to_show,
+        max_age_days=30,
+        include_unknown_dates=False,
+        include_international=False,
+        job_modes=default_job_modes,
+        preferred_locations=preferred_locations,
+        db_path=DB_PATH,
+    )
+    last_24h_count = count_jobs(max_age_hours=24, include_unknown_dates=False, db_path=DB_PATH)
 
     cols = st.columns(6)
-    cols[0].metric("Vagas", counts["total"])
-    cols[1].metric("Match medio", counts["avg_score"])
-    cols[2].metric("Salvas", by_status.get("saved", 0))
-    cols[3].metric("Candidatadas", by_status.get("applied", 0))
-    cols[4].metric("Ignoradas", by_status.get("ignored", 0))
-    cols[5].metric("Ultimas 24h", count_jobs(max_age_hours=24, include_unknown_dates=False, db_path=DB_PATH))
+    cols[0].metric("Banco", counts["total"])
+    cols[1].metric("Recentes", recent_count)
+    cols[2].metric("Recomendadas", recommended_count)
+    cols[3].metric("Match medio", counts["avg_score"])
+    cols[4].metric("Candidatadas", by_status.get("applied", 0))
+    cols[5].metric("Ultimas 24h", last_24h_count)
+
+    st.markdown("**Funil de recomendacao**")
+    funnel_df = pd.DataFrame(
+        [
+            {"fase": "No banco", "total": counts["total"]},
+            {"fase": "Recentes ate 30 dias", "total": recent_count},
+            {"fase": f"Acima do minimo salvo ({min_score_to_store}%)", "total": eligible_count},
+            {"fase": f"Filtro padrao da tela ({min_score_to_show}%+)", "total": recommended_count},
+            {"fase": "Salvas", "total": by_status.get("saved", 0)},
+            {"fase": "Candidatadas", "total": by_status.get("applied", 0)},
+        ]
+    )
+    st.dataframe(
+        funnel_df.rename(columns={"fase": "Fase", "total": "Total"}),
+        hide_index=True,
+        use_container_width=True,
+    )
+    st.bar_chart(funnel_df, x="fase", y="total")
 
     chart_cols = st.columns(2)
     status_df = pd.DataFrame(
@@ -337,11 +581,60 @@ def dashboard_tab() -> None:
 
     source_df = pd.DataFrame(counts["by_source"])
     if not source_df.empty:
-        chart_cols[1].bar_chart(source_df, x="source", y="total")
+        source_df["recommended"] = source_df["source"].apply(
+            lambda source: count_jobs(
+                statuses=["new", "saved"],
+                min_score=min_score_to_show,
+                max_age_days=30,
+                include_unknown_dates=False,
+                include_international=False,
+                job_modes=default_job_modes,
+                preferred_locations=preferred_locations,
+                sources=[source],
+                db_path=DB_PATH,
+            )
+        )
+        source_df["recommendation_rate"] = (
+            (source_df["recommended"] / source_df["total"].replace(0, pd.NA)) * 100
+        ).fillna(0).round(1)
+        chart_cols[1].bar_chart(source_df, x="source", y="recommended")
+        st.markdown("**Qualidade por fonte**")
+        source_view = source_df.rename(
+            columns={
+                "source": "Fonte",
+                "total": "No banco",
+                "recommended": "Recomendadas",
+                "recommendation_rate": "Taxa recomendada (%)",
+                "avg_score": "Match medio",
+                "best_score": "Melhor match",
+                "strong_matches": "Matches 40%+",
+            }
+        )
+        st.dataframe(source_view, hide_index=True, use_container_width=True)
 
     companies_df = pd.DataFrame(counts["top_companies"])
     if not companies_df.empty:
+        st.markdown("**Empresas com melhor sinal**")
         st.dataframe(companies_df, hide_index=True, use_container_width=True)
+
+    last_refresh = st.session_state.get("last_refresh_summary")
+    if last_refresh:
+        with st.expander("Ultima busca desta sessao"):
+            st.write(
+                f"{last_refresh.get('fetched', 0)} vagas coletadas, "
+                f"{last_refresh.get('ranked', 0)} ranqueadas, "
+                f"{last_refresh.get('eligible', 0)} elegiveis e "
+                f"{last_refresh.get('saved', 0)} gravadas/atualizadas."
+            )
+            by_source = last_refresh.get("fetched_by_source") or {}
+            if by_source:
+                st.dataframe(
+                    pd.DataFrame(
+                        [{"Fonte": source, "Coletadas": total} for source, total in sorted(by_source.items())]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
 
 def settings_tab() -> None:
@@ -593,6 +886,21 @@ def settings_tab() -> None:
             "Gupy, Remotive, RemoteOK, Arbeitnow e Solides ampliam a busca."
         )
         with st.form("sources-form"):
+            st.markdown("**Fontes ativas**")
+            active_cols = st.columns(4)
+            use_greenhouse = active_cols[0].checkbox("Greenhouse", value=bool(sources.get("greenhouse")))
+            use_lever = active_cols[1].checkbox("Lever", value=bool(sources.get("lever")))
+            use_ashby = active_cols[2].checkbox("Ashby", value=bool(sources.get("ashby")))
+            use_smartrecruiters = active_cols[3].checkbox(
+                "SmartRecruiters",
+                value=bool(sources.get("smartrecruiters")),
+            )
+            active_cols_2 = st.columns(4)
+            use_gupy = active_cols_2[0].checkbox("Gupy", value=bool(sources.get("gupy")))
+            use_solides = active_cols_2[1].checkbox("Solides", value=bool(sources.get("solides")))
+            use_remotive = active_cols_2[2].checkbox("Remotive", value=bool(sources.get("remotive")))
+            use_arbeitnow = active_cols_2[3].checkbox("Arbeitnow", value=bool(sources.get("arbeitnow")))
+
             source_cols = st.columns(2)
             with source_cols[0]:
                 greenhouse = st.text_area("Greenhouse boards", value=list_to_text(sources.get("greenhouse")), height=220)
@@ -639,16 +947,16 @@ def settings_tab() -> None:
                 write_yaml(
                     SOURCES_PATH,
                     {
-                        "ashby": text_to_list(ashby),
-                        "greenhouse": text_to_list(greenhouse),
-                        "gupy": [str(int(gupy_pages))] if gupy_pages else [],
-                        "lever": text_to_list(lever),
-                        "smartrecruiters": text_to_list(smartrecruiters),
+                        "ashby": text_to_list(ashby) if use_ashby else [],
+                        "greenhouse": text_to_list(greenhouse) if use_greenhouse else [],
+                        "gupy": [str(int(gupy_pages))] if use_gupy and gupy_pages else [],
+                        "lever": text_to_list(lever) if use_lever else [],
+                        "smartrecruiters": text_to_list(smartrecruiters) if use_smartrecruiters else [],
                         "smartrecruiters_pages": [str(int(smartrecruiters_pages))],
-                        "remotive": text_to_list(remotive),
+                        "remotive": text_to_list(remotive) if use_remotive else [],
                         "remoteok": ["data"] if remoteok else [],
-                        "arbeitnow": [str(int(arbeitnow_pages))] if arbeitnow_pages else [],
-                        "solides": [str(int(solides_pages))] if solides_pages else [],
+                        "arbeitnow": [str(int(arbeitnow_pages))] if use_arbeitnow and arbeitnow_pages else [],
+                        "solides": [str(int(solides_pages))] if use_solides and solides_pages else [],
                     },
                 )
                 st.success("Fontes salvas. Clique em Buscar vagas agora para coletar dessas fontes.")
@@ -676,6 +984,7 @@ def main() -> None:
         if st.button("Buscar vagas agora", type="primary", use_container_width=True):
             with st.spinner("Buscando e ranqueando vagas..."):
                 summary = refresh_recommendations(PROFILE_PATH, SOURCES_PATH, DB_PATH)
+            st.session_state["last_refresh_summary"] = summary
             st.success(
                 f"{summary['ranked']} vagas ranqueadas. "
                 f"{summary.get('eligible', summary['saved'])} passaram no match minimo. "
@@ -691,6 +1000,7 @@ def main() -> None:
         if st.button("Recalcular banco", use_container_width=True):
             with st.spinner("Recalculando scores..."):
                 summary = rescore_existing_jobs(PROFILE_PATH, DB_PATH)
+            st.session_state["last_rescore_summary"] = summary
             st.success(
                 f"{summary['rescored']} vagas recalculadas. "
                 f"{summary.get('pruned', 0)} irrelevantes removidas. "

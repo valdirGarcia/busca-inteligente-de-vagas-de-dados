@@ -9,11 +9,13 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 3. Calcula um score de match com base em cargo, senioridade, skills, dominios de negocio, localizacao e termos de penalizacao.
 4. Exibe recomendacoes em ordem decrescente de match.
 5. Permite salvar vagas, marcar candidaturas, ignorar vagas e adicionar vagas manualmente.
-6. Mantem um dashboard local com status, fontes e empresas.
+6. Mantem um dashboard local com funil de recomendacao, status, fontes e empresas.
 7. Remove vagas antigas/irrelevantes do banco, preservando candidaturas e vagas manuais.
-8. Filtra recomendacoes por tipo/local: home office, regiao configurada no perfil e presencial fora da regiao.
+8. Filtra recomendacoes por modalidade/local: remoto, presencial na regiao, hibrido na regiao e fora da regiao.
 9. Evita gravar no SQLite vagas abaixo do match minimo configurado.
 10. Permite filtrar recomendacoes por fonte de vagas.
+11. Mostra badges de local/modalidade e uma explicacao numerica do match por componente.
+12. Permite ativar/desativar fontes na aba de configuracoes.
 
 ## Como rodar
 
