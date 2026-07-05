@@ -453,6 +453,9 @@ def recommendations_tab() -> None:
     age_value = age_map[age_option]
     max_age_hours = age_value[1] if isinstance(age_value, tuple) and age_value[0] == "hours" else None
     max_age_days = age_value if isinstance(age_value, int) else None
+    if status_option in {"Salvas", "Candidatadas"}:
+        max_age_hours = None
+        max_age_days = None
     total_found = count_jobs(
         statuses=status_map[status_option],
         min_score=int(min_score),

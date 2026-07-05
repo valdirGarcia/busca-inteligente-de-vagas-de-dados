@@ -277,7 +277,7 @@ def prune_stale_jobs(max_age_days: int, db_path: str | Path = DEFAULT_DB_PATH) -
         cursor = connection.execute(
             """
             DELETE FROM jobs
-            WHERE status != 'applied'
+            WHERE status NOT IN ('saved', 'applied')
               AND source != 'manual'
               AND (
                     published_at IS NULL
