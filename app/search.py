@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--smartrecruiters-pages",
         type=int,
-        default=3,
+        default=5,
         help="Paginas por empresa no SmartRecruiters.",
     )
     parser.add_argument(

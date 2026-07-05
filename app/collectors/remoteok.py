@@ -20,7 +20,7 @@ def _published_within_days(value: str, max_age_days: int) -> bool:
     return published >= cutoff
 
 
-def fetch_remoteok_jobs(timeout: int = 20, max_age_days: int = 30) -> list[Job]:
+def fetch_remoteok_jobs(timeout: int = 20, max_age_days: int = 7) -> list[Job]:
     request = Request(
         "https://remoteok.com/api",
         headers={"User-Agent": "Mozilla/5.0 busca-vagas-app/0.1", "Accept": "application/json"},

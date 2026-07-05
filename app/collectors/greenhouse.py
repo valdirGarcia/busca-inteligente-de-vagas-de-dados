@@ -20,7 +20,7 @@ def _published_within_days(value: str, max_age_days: int) -> bool:
     return published >= cutoff
 
 
-def fetch_greenhouse_jobs(board_token: str, timeout: int = 20, max_age_days: int = 30) -> list[Job]:
+def fetch_greenhouse_jobs(board_token: str, timeout: int = 20, max_age_days: int = 7) -> list[Job]:
     query = urlencode({"content": "true"})
     url = f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?{query}"
     with urlopen(url, timeout=timeout) as response:

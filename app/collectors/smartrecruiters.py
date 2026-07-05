@@ -131,10 +131,10 @@ def _build_job(company_slug: str, item: dict) -> Job:
 
 def fetch_smartrecruiters_jobs(
     company_slug: str,
-    pages: int = 3,
+    pages: int = 5,
     limit: int = 100,
     timeout: int = 20,
-    max_age_days: int = 30,
+    max_age_days: int = 7,
 ) -> list[Job]:
     candidate_items: dict[str, dict] = {}
     safe_pages = max(1, min(pages, 10))

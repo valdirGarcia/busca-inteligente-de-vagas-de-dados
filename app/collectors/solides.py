@@ -17,26 +17,53 @@ SOLIDES_API_URL = "https://apigw.solides.com.br/jobs/v3/portal-vacancies-new"
 SOLIDES_PORTAL_URL = "https://vagas.solides.com.br"
 SOLIDES_TITLE_TERMS = [
     "analista de dados",
+    "analista de dados junior",
+    "analista de dados jr",
+    "analista de dados pleno",
+    "analista de dados pl",
     "cientista de dados",
+    "cientista de dados junior",
+    "cientista de dados jr",
+    "cientista de dados pleno",
+    "cientista de dados pl",
     "analista de bi",
+    "analista bi",
+    "analista de business intelligence",
+    "analista power bi",
     "assistente de bi",
     "business intelligence",
     "data analyst",
     "data scientist",
     "analytics",
+    "analista de analytics",
+    "analista analytics",
     "power bi",
     "engenheiro de dados",
     "analista de planejamento",
     "analista de performance",
     "analista de risco de credito",
+    "credit risk analyst",
+    "risk analytics",
     "analista de credito",
     "politicas de credito",
+    "analista de fraude",
+    "analista antifraude",
     "analista de indicadores",
+    "analista de inteligencia de dados",
     "analista de informacoes gerenciais",
+    "analista de inteligencia comercial",
+    "analista de inteligencia de negocios",
     "analista de inteligencia de mercado",
     "analista de mis",
+    "analista de crm",
+    "analista de pricing",
+    "analista de growth",
+    "growth analyst",
+    "business analyst",
+    "analista de negocios",
     "analista de relatorios",
     "analytics engineer",
+    "product data analyst",
     "data analytics",
     "data science",
 ]
@@ -181,38 +208,49 @@ def _fetch_page(term: str, page: int, limit: int, timeout: int) -> list[dict]:
     return data.get("data") or []
 
 
+def _fetch_term_jobs(term: str, pages: int, limit: int, max_age_days: int, timeout: int) -> list[Job]:
+    jobs = []
+    for page in range(1, pages + 1):
+        items = _fetch_page(term, page, limit, timeout)
+        if not items:
+            break
+
+        for item in items:
+            published_at = str(item.get("createdAt") or "")
+            if not _published_within_days(published_at, max_age_days):
+                continue
+            job = _build_job(item)
+            if job:
+                jobs.append(job)
+
+        if len(items) < limit:
+            break
+    return jobs
+
+
 def fetch_solides_jobs(
-    pages_per_term: int = 3,
+    pages_per_term: int = 12,
     terms: list[str] | None = None,
     limit: int = 50,
-    max_age_days: int = 30,
+    max_age_days: int = 7,
     timeout: int = 12,
 ) -> list[Job]:
     jobs: dict[str, Job] = {}
     search_terms = terms or SOLIDES_TITLE_TERMS
 
-    tasks = [
-        (term, page)
-        for term in search_terms
-        for page in range(1, max(1, pages_per_term) + 1)
-    ]
+    safe_pages = max(1, pages_per_term)
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(_fetch_page, term, page, limit, timeout): (term, page)
-            for term, page in tasks
+            executor.submit(_fetch_term_jobs, term, safe_pages, limit, max_age_days, timeout): term
+            for term in search_terms
         }
         for future in as_completed(futures):
             try:
-                items = future.result()
+                term_jobs = future.result()
             except Exception:
                 continue
 
-            for item in items:
-                published_at = str(item.get("createdAt") or "")
-                if not _published_within_days(published_at, max_age_days):
-                    continue
-                job = _build_job(item)
-                if job:
-                    jobs[job.url] = job
+            for job in term_jobs:
+                jobs[job.url] = job
 
     return list(jobs.values())

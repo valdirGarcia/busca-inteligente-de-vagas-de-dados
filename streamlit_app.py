@@ -399,8 +399,8 @@ def recommendations_tab() -> None:
         )
         age_option = filter_cols[3].selectbox(
             "Publicada",
-            ["24 horas", "7 dias", "14 dias", "30 dias"],
-            index=3,
+            ["24 horas", "3 dias", "7 dias"],
+            index=2,
         )
         display_limit = filter_cols[4].number_input("Qtd. exibida", min_value=20, max_value=1000, value=300, step=20)
 
@@ -429,12 +429,13 @@ def recommendations_tab() -> None:
         selected_sources = extra_filter_cols[1].multiselect(
             "Fontes",
             source_options,
-            default=source_options,
+            default=[],
             placeholder="Todas as fontes",
+            help="Vazio usa todas as fontes disponiveis no banco.",
         )
 
     job_modes = [JOB_MODE_OPTIONS[label] for label in selected_job_mode_labels]
-    source_filter = selected_sources if set(selected_sources) != set(source_options) else None
+    source_filter = selected_sources or None
 
     status_map = {
         "Novas e salvas": ["new", "saved"],
@@ -446,9 +447,8 @@ def recommendations_tab() -> None:
     }
     age_map = {
         "24 horas": ("hours", 24),
+        "3 dias": 3,
         "7 dias": 7,
-        "14 dias": 14,
-        "30 dias": 30,
     }
     age_value = age_map[age_option]
     max_age_hours = age_value[1] if isinstance(age_value, tuple) and age_value[0] == "hours" else None
@@ -596,17 +596,17 @@ def dashboard_tab() -> None:
 
     counts = dashboard_counts(DB_PATH)
     by_status = counts["by_status"]
-    recent_count = count_jobs(max_age_days=30, include_unknown_dates=False, db_path=DB_PATH)
+    recent_count = count_jobs(max_age_days=7, include_unknown_dates=False, db_path=DB_PATH)
     eligible_count = count_jobs(
         min_score=min_score_to_store,
-        max_age_days=30,
+        max_age_days=7,
         include_unknown_dates=False,
         db_path=DB_PATH,
     )
     recommended_count = count_jobs(
         statuses=["new", "saved"],
         min_score=min_score_to_show,
-        max_age_days=30,
+        max_age_days=7,
         include_unknown_dates=False,
         include_international=False,
         job_modes=default_job_modes,
@@ -627,7 +627,7 @@ def dashboard_tab() -> None:
     funnel_df = pd.DataFrame(
         [
             {"fase": "No banco", "total": counts["total"]},
-            {"fase": "Recentes ate 30 dias", "total": recent_count},
+            {"fase": "Recentes ate 7 dias", "total": recent_count},
             {"fase": f"Acima do minimo salvo ({min_score_to_store}%)", "total": eligible_count},
             {"fase": f"Filtro padrao da tela ({min_score_to_show}%+)", "total": recommended_count},
             {"fase": "Salvas", "total": by_status.get("saved", 0)},
@@ -654,7 +654,7 @@ def dashboard_tab() -> None:
             lambda source: count_jobs(
                 statuses=["new", "saved"],
                 min_score=min_score_to_show,
-                max_age_days=30,
+                max_age_days=7,
                 include_unknown_dates=False,
                 include_international=False,
                 job_modes=default_job_modes,
@@ -857,8 +857,8 @@ def settings_tab() -> None:
                 max_job_age_days_to_store = r1.number_input(
                     "Idade maxima salva no banco (dias)",
                     min_value=1,
-                    max_value=30,
-                    value=min(30, int(match_settings["max_job_age_days_to_store"])),
+                    max_value=7,
+                    value=min(7, int(match_settings["max_job_age_days_to_store"])),
                     step=1,
                 )
                 priority_role_weight = r1.number_input(
@@ -1034,28 +1034,28 @@ def settings_tab() -> None:
                     "Paginas Arbeitnow",
                     min_value=0,
                     max_value=20,
-                    value=first_int(sources.get("arbeitnow"), 15),
+                    value=first_int(sources.get("arbeitnow"), 20),
                     step=1,
                 )
                 solides_pages = page_cols[1].number_input(
                     "Paginas Solides",
                     min_value=0,
                     max_value=20,
-                    value=first_int(sources.get("solides"), 8),
+                    value=first_int(sources.get("solides"), 12),
                     step=1,
                 )
                 smartrecruiters_pages = page_cols[2].number_input(
                     "Paginas SmartRecruiters",
                     min_value=1,
                     max_value=10,
-                    value=first_int(sources.get("smartrecruiters_pages"), 3),
+                    value=first_int(sources.get("smartrecruiters_pages"), 5),
                     step=1,
                 )
                 gupy_pages = st.number_input(
                     "Paginas por termo na Gupy",
                     min_value=0,
                     max_value=20,
-                    value=first_int(sources.get("gupy"), 5),
+                    value=first_int(sources.get("gupy"), 8),
                     step=1,
                 )
             if st.form_submit_button("Salvar fontes", type="primary"):

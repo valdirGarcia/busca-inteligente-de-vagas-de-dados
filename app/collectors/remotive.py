@@ -20,7 +20,7 @@ def _published_within_days(value: str, max_age_days: int) -> bool:
     return published >= cutoff
 
 
-def fetch_remotive_jobs(category: str = "data", timeout: int = 20, max_age_days: int = 30) -> list[Job]:
+def fetch_remotive_jobs(category: str = "data", timeout: int = 20, max_age_days: int = 7) -> list[Job]:
     query = urlencode({"category": category})
     url = f"https://remotive.com/api/remote-jobs?{query}"
     request = Request(url, headers={"User-Agent": "Mozilla/5.0 busca-vagas-app/0.1"})

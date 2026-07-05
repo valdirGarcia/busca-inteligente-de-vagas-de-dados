@@ -9,7 +9,7 @@ from app.models import Job, MatchResult, Profile
 DEFAULT_MATCH_SETTINGS = {
     "min_score_to_show": 1,
     "min_score_to_store": 1,
-    "max_job_age_days_to_store": 30,
+    "max_job_age_days_to_store": 7,
     "core_skills_weight": 35,
     "nice_to_have_skills_weight": 10,
     "business_domain_weight": 10,

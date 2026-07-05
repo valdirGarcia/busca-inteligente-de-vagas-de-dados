@@ -34,9 +34,9 @@ greenhouse:
 lever:
   - spotify
 
-# Portal publico brasileiro de vagas. Usa termos de dados e filtra por 30 dias.
+# Portal publico brasileiro de vagas. Usa termos de dados e filtra por 7 dias.
 gupy:
-  - 5
+  - 8
 
 # Ashby tambem e ATS por empresa, com endpoint publico de job board.
 ashby:
@@ -56,7 +56,7 @@ smartrecruiters:
   - Devoteam
 
 smartrecruiters_pages:
-  - 3
+  - 5
 
 # Fonte agregadora de vagas remotas. O ranking filtra o que realmente combina.
 remotive:
@@ -67,8 +67,8 @@ remoteok:
 
 # Numero de paginas lidas da API publica do Arbeitnow.
 arbeitnow:
-  - 15
+  - 20
 
 # Numero de paginas por termo buscado no portal publico da Solides.
 solides:
-  - 8
+  - 12

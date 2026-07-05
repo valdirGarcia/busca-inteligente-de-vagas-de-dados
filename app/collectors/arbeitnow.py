@@ -31,7 +31,7 @@ def _published_within_days(value: str, max_age_days: int) -> bool:
     return published >= cutoff
 
 
-def fetch_arbeitnow_jobs(pages: int = 5, timeout: int = 20, max_age_days: int = 30) -> list[Job]:
+def fetch_arbeitnow_jobs(pages: int = 20, timeout: int = 20, max_age_days: int = 7) -> list[Job]:
     jobs = []
     for page in range(1, pages + 1):
         query = urlencode({"page": page})

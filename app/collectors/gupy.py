@@ -15,26 +15,53 @@ GUPY_API_URL = "https://employability-portal.gupy.io/api/v1/jobs"
 GUPY_PORTAL_URL = "https://portal.gupy.io"
 GUPY_TITLE_TERMS = [
     "analista de dados",
+    "analista de dados junior",
+    "analista de dados jr",
+    "analista de dados pleno",
+    "analista de dados pl",
     "cientista de dados",
+    "cientista de dados junior",
+    "cientista de dados jr",
+    "cientista de dados pleno",
+    "cientista de dados pl",
     "analista de bi",
+    "analista bi",
+    "analista de business intelligence",
+    "analista power bi",
     "assistente de bi",
     "business intelligence",
     "data analyst",
     "data scientist",
     "analytics",
+    "analista de analytics",
+    "analista analytics",
     "power bi",
     "engenheiro de dados",
     "analista de planejamento",
     "analista de performance",
     "analista de risco de credito",
+    "credit risk analyst",
+    "risk analytics",
     "analista de credito",
     "politicas de credito",
+    "analista de fraude",
+    "analista antifraude",
     "analista de indicadores",
+    "analista de inteligencia de dados",
     "analista de informacoes gerenciais",
+    "analista de inteligencia comercial",
+    "analista de inteligencia de negocios",
     "analista de inteligencia de mercado",
     "analista de mis",
+    "analista de crm",
+    "analista de pricing",
+    "analista de growth",
+    "growth analyst",
+    "business analyst",
+    "analista de negocios",
     "analista de relatorios",
     "analytics engineer",
+    "product data analyst",
     "data analytics",
     "data science",
 ]
@@ -130,41 +157,52 @@ def _fetch_page(term: str, offset: int, limit: int, timeout: int) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _fetch_term_jobs(term: str, pages: int, limit: int, max_age_days: int, timeout: int) -> list[Job]:
+    jobs = []
+    for page in range(1, pages + 1):
+        payload = _fetch_page(term, (page - 1) * limit, limit, timeout)
+        items = payload.get("data") or []
+        if not items:
+            break
+
+        for item in items:
+            published_at = str(item.get("publishedDate") or "")
+            if not _published_within_days(published_at, max_age_days):
+                continue
+            job = _build_job(item)
+            if job:
+                jobs.append(job)
+
+        if len(items) < limit:
+            break
+    return jobs
+
+
 def fetch_gupy_jobs(
-    pages_per_term: int = 4,
+    pages_per_term: int = 8,
     terms: list[str] | None = None,
     limit: int = 50,
-    max_age_days: int = 30,
+    max_age_days: int = 7,
     timeout: int = 20,
 ) -> list[Job]:
     jobs: dict[str, Job] = {}
     search_terms = terms or GUPY_TITLE_TERMS
     safe_pages = max(1, pages_per_term)
 
-    tasks = [
-        (term, (page - 1) * limit)
-        for term in search_terms
-        for page in range(1, safe_pages + 1)
-    ]
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(_fetch_page, term, offset, limit, timeout): (term, offset)
-            for term, offset in tasks
+            executor.submit(_fetch_term_jobs, term, safe_pages, limit, max_age_days, timeout): term
+            for term in search_terms
         }
         for future in as_completed(futures):
             try:
-                payload = future.result()
+                term_jobs = future.result()
             except Exception:
                 continue
 
-            for item in payload.get("data") or []:
-                published_at = str(item.get("publishedDate") or "")
-                if not _published_within_days(published_at, max_age_days):
-                    continue
-                job = _build_job(item)
-                if job:
-                    key = _dedupe_key(job) or job.url
-                    if key not in jobs or _is_newer(job, jobs[key]):
-                        jobs[key] = job
+            for job in term_jobs:
+                key = _dedupe_key(job) or job.url
+                if key not in jobs or _is_newer(job, jobs[key]):
+                    jobs[key] = job
 
     return list(jobs.values())

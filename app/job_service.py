@@ -37,7 +37,7 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
     if source_type == "greenhouse":
         return source_type, token, fetch_greenhouse_jobs(token, max_age_days=max_age_days)
     if source_type == "gupy":
-        pages = int(token) if token.isdigit() else 4
+        pages = int(token) if token.isdigit() else 8
         terms = None if token.isdigit() else [token]
         return source_type, token, fetch_gupy_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     if source_type == "lever":
@@ -47,16 +47,16 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
     if source_type == "remoteok":
         return source_type, token, fetch_remoteok_jobs(max_age_days=max_age_days)
     if source_type == "arbeitnow":
-        pages = int(token) if token.isdigit() else 5
+        pages = int(token) if token.isdigit() else 20
         return source_type, token, fetch_arbeitnow_jobs(pages=pages, max_age_days=max_age_days)
     if source_type == "smartrecruiters":
         return source_type, token, fetch_smartrecruiters_jobs(
             token,
-            pages=settings.get("smartrecruiters_pages", 3),
+            pages=settings.get("smartrecruiters_pages", 5),
             max_age_days=max_age_days,
         )
     if source_type == "solides":
-        pages = int(token) if token.isdigit() else 3
+        pages = int(token) if token.isdigit() else 12
         terms = None if token.isdigit() else [token]
         return source_type, token, fetch_solides_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     raise ValueError(f"Fonte desconhecida: {source_type}")
@@ -76,17 +76,17 @@ def _max_age_days_from_profile(profile_path: str | Path) -> int:
     configured = int(
         profile.match_settings.get("max_job_age_days_to_store", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])
     )
-    return max(1, min(30, configured))
+    return max(1, min(7, configured))
 
 
-def collect_jobs(sources_path: str | Path, max_age_days: int = 30) -> tuple[list[Job], list[str]]:
+def collect_jobs(sources_path: str | Path, max_age_days: int = 7) -> tuple[list[Job], list[str]]:
     sources = load_sources(sources_path)
     jobs: list[Job] = []
     errors: list[str] = []
     tasks: list[tuple[str, str]] = []
     settings = {
-        "smartrecruiters_pages": _first_int(sources.get("smartrecruiters_pages"), 3),
-        "max_age_days": max(1, min(30, max_age_days)),
+        "smartrecruiters_pages": _first_int(sources.get("smartrecruiters_pages"), 5),
+        "max_age_days": max(1, min(7, max_age_days)),
     }
 
     for source_type, tokens in sources.items():

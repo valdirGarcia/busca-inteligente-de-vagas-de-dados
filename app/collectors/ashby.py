@@ -53,7 +53,7 @@ def _compensation_text(item: dict) -> str:
     return "\n".join(dict.fromkeys(values))
 
 
-def fetch_ashby_jobs(board_name: str, timeout: int = 20, max_age_days: int = 30) -> list[Job]:
+def fetch_ashby_jobs(board_name: str, timeout: int = 20, max_age_days: int = 7) -> list[Job]:
     url = f"{ASHBY_API_URL}/{quote(board_name)}?includeCompensation=true"
     request = Request(url, headers={"User-Agent": "Mozilla/5.0 busca-vagas-app/0.1", "Accept": "application/json"})
     with urlopen(request, timeout=timeout) as response:

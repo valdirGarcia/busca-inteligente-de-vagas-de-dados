@@ -28,7 +28,7 @@ def _published_within_days(value: str, max_age_days: int) -> bool:
     return published >= cutoff
 
 
-def fetch_lever_jobs(company_slug: str, timeout: int = 20, max_age_days: int = 30) -> list[Job]:
+def fetch_lever_jobs(company_slug: str, timeout: int = 20, max_age_days: int = 7) -> list[Job]:
     url = f"https://api.lever.co/v0/postings/{company_slug}?mode=json"
     with urlopen(url, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))

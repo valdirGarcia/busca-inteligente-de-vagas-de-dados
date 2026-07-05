@@ -19,6 +19,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 13. Registra motivo ao ignorar uma vaga e consolida esses motivos no dashboard.
 14. Exporta candidaturas em CSV.
 15. Mantem historico das buscas executadas e do volume coletado/elegivel por fonte.
+16. Mantem a busca e o banco focados em vagas publicadas nos ultimos 7 dias.
 
 ## Como rodar
 
