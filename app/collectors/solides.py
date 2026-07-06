@@ -16,11 +16,14 @@ from app.text_utils import strip_html
 SOLIDES_API_URL = "https://apigw.solides.com.br/jobs/v3/portal-vacancies-new"
 SOLIDES_PORTAL_URL = "https://vagas.solides.com.br"
 SOLIDES_TITLE_TERMS = [
+    "dados",
     "analista de dados",
     "analista de dados junior",
     "analista de dados jr",
     "analista de dados pleno",
     "analista de dados pl",
+    "assistente de dados",
+    "auxiliar de dados",
     "cientista de dados",
     "cientista de dados junior",
     "cientista de dados jr",
@@ -38,6 +41,9 @@ SOLIDES_TITLE_TERMS = [
     "analista de analytics",
     "analista analytics",
     "power bi",
+    "dashboard",
+    "dashboards",
+    "sql",
     "engenheiro de dados",
     "analista de planejamento",
     "analista de performance",
@@ -50,7 +56,9 @@ SOLIDES_TITLE_TERMS = [
     "analista antifraude",
     "analista de indicadores",
     "analista de inteligencia de dados",
+    "analista de inteligencia",
     "analista de informacoes gerenciais",
+    "analista de informacoes",
     "analista de inteligencia comercial",
     "analista de inteligencia de negocios",
     "analista de inteligencia de mercado",
@@ -215,23 +223,27 @@ def _fetch_term_jobs(term: str, pages: int, limit: int, max_age_days: int, timeo
         if not items:
             break
 
+        page_has_recent_job = False
         for item in items:
             published_at = str(item.get("createdAt") or "")
             if not _published_within_days(published_at, max_age_days):
                 continue
+            page_has_recent_job = True
             job = _build_job(item)
             if job:
                 jobs.append(job)
 
+        if not page_has_recent_job:
+            break
         if len(items) < limit:
             break
     return jobs
 
 
 def fetch_solides_jobs(
-    pages_per_term: int = 12,
+    pages_per_term: int = 20,
     terms: list[str] | None = None,
-    limit: int = 50,
+    limit: int = 10,
     max_age_days: int = 7,
     timeout: int = 12,
 ) -> list[Job]:

@@ -65,10 +65,17 @@ remotive:
 remoteok:
   - data
 
+# Fonte remota publica, focada em Data Science & Analytics.
+# Regioes uteis: brazil, latam, all.
+jobicy:
+  - brazil
+  - latam
+  - all
+
 # Numero de paginas lidas da API publica do Arbeitnow.
 arbeitnow:
   - 20
 
 # Numero de paginas por termo buscado no portal publico da Solides.
 solides:
-  - 12
+  - 20

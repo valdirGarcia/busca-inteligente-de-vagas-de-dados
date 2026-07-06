@@ -162,7 +162,7 @@ def _preferred_region_terms(preferred_locations: list[str] | None) -> list[str]:
 def _remote_clause() -> str:
     return """
         (
-            source IN ('remotive', 'remoteok')
+            source IN ('jobicy', 'remotive', 'remoteok')
             OR LOWER(COALESCE(location, '')) LIKE '%remot%'
             OR LOWER(COALESCE(location, '')) LIKE '%home office%'
             OR LOWER(COALESCE(location, '')) LIKE '%teletrabalho%'

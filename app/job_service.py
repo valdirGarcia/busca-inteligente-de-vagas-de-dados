@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from time import sleep
 from urllib.error import HTTPError, URLError
 
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
+from app.collectors.jobicy import fetch_jobicy_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
@@ -40,6 +42,9 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
         pages = int(token) if token.isdigit() else 8
         terms = None if token.isdigit() else [token]
         return source_type, token, fetch_gupy_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
+    if source_type == "jobicy":
+        geo = None if token.lower() in {"all", "any", "global"} else token
+        return source_type, token, fetch_jobicy_jobs(geo=geo, max_age_days=max_age_days)
     if source_type == "lever":
         return source_type, token, fetch_lever_jobs(token, max_age_days=max_age_days)
     if source_type == "remotive":
@@ -56,10 +61,29 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
             max_age_days=max_age_days,
         )
     if source_type == "solides":
-        pages = int(token) if token.isdigit() else 12
+        pages = int(token) if token.isdigit() else 20
         terms = None if token.isdigit() else [token]
         return source_type, token, fetch_solides_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     raise ValueError(f"Fonte desconhecida: {source_type}")
+
+
+def _fetch_source_with_retry(
+    source_type: str,
+    token: str,
+    settings: dict[str, int],
+    attempts: int = 2,
+) -> tuple[str, str, list[Job]]:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _fetch_source(source_type, token, settings)
+        except Exception as error:
+            last_error = error
+            if attempt < attempts:
+                sleep(1)
+    if last_error:
+        raise last_error
+    raise RuntimeError(f"Falha desconhecida ao buscar {source_type}:{token}")
 
 
 def _first_int(values: list[str] | None, default: int) -> int:
@@ -97,7 +121,7 @@ def collect_jobs(sources_path: str | Path, max_age_days: int = 7) -> tuple[list[
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(_fetch_source, source_type, token, settings): (source_type, token)
+            executor.submit(_fetch_source_with_retry, source_type, token, settings): (source_type, token)
             for source_type, token in tasks
         }
         for future in as_completed(futures):

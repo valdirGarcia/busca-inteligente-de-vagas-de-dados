@@ -133,7 +133,7 @@ def fetch_smartrecruiters_jobs(
     company_slug: str,
     pages: int = 5,
     limit: int = 100,
-    timeout: int = 20,
+    timeout: int = 30,
     max_age_days: int = 7,
 ) -> list[Job]:
     candidate_items: dict[str, dict] = {}
