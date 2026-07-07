@@ -24,6 +24,7 @@ def load_sources(path: str | Path) -> dict[str, list[str]]:
         "greenhouse": _as_list(raw.get("greenhouse")),
         "gupy": _as_list(raw.get("gupy")),
         "jobicy": _as_list(raw.get("jobicy")),
+        "netvagas": _as_list(raw.get("netvagas")),
         "remotive": _as_list(raw.get("remotive")),
         "remoteok": _as_list(raw.get("remoteok")),
         "arbeitnow": _as_list(raw.get("arbeitnow")),

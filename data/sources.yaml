@@ -72,6 +72,10 @@ jobicy:
   - latam
   - all
 
+# Portal publico brasileiro com busca por cargo.
+netvagas:
+  - 3
+
 # Numero de paginas lidas da API publica do Arbeitnow.
 arbeitnow:
   - 20

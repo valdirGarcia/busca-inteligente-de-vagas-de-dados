@@ -7,6 +7,7 @@ from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
 from app.collectors.lever import fetch_lever_jobs
+from app.collectors.netvagas import fetch_netvagas_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
@@ -61,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--remoteok", action="store_true", help="Buscar vagas filtradas no RemoteOK.")
     parser.add_argument("--arbeitnow", type=int, help="Buscar vagas filtradas no Arbeitnow. Valor = paginas.")
     parser.add_argument("--solides", type=int, help="Buscar vagas filtradas na Solides. Valor = paginas por termo.")
+    parser.add_argument("--netvagas", type=int, help="Buscar vagas filtradas na Netvagas. Valor = paginas por termo.")
     parser.add_argument("--limit", type=int, default=20, help="Quantidade de resultados exibidos.")
     return parser.parse_args()
 
@@ -85,6 +87,8 @@ def main() -> None:
             args.arbeitnow = int(configured_sources["arbeitnow"][0])
         if configured_sources["solides"] and args.solides is None:
             args.solides = int(configured_sources["solides"][0])
+        if configured_sources["netvagas"] and args.netvagas is None:
+            args.netvagas = int(configured_sources["netvagas"][0])
 
     jobs = []
     attempted_sources = 0
@@ -183,6 +187,15 @@ def main() -> None:
             print(f"Aviso: Solides retornou HTTP {error.code}. Pulando fonte.")
         except URLError as error:
             print(f"Aviso: erro de rede ao buscar Solides: {error.reason}. Pulando fonte.")
+
+    if args.netvagas:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_netvagas_jobs(pages_per_term=args.netvagas))
+        except HTTPError as error:
+            print(f"Aviso: Netvagas retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Netvagas: {error.reason}. Pulando fonte.")
 
     if attempted_sources == 0:
         print("Nenhuma fonte informada. Exemplo: python -m app.search --profile data/profile.yaml --sources data/sources.yaml")

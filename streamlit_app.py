@@ -1001,7 +1001,7 @@ def settings_tab() -> None:
     with sources_section:
         st.caption(
             "Greenhouse, Lever, Ashby e SmartRecruiters sao ATS por empresa. "
-            "Gupy, Solides, Remotive, RemoteOK, Arbeitnow e Jobicy ampliam a busca."
+            "Gupy, Solides, Netvagas, Remotive, RemoteOK, Arbeitnow e Jobicy ampliam a busca."
         )
         with st.form("sources-form"):
             st.markdown("**Fontes ativas**")
@@ -1020,6 +1020,7 @@ def settings_tab() -> None:
             use_arbeitnow = active_cols_2[3].checkbox("Arbeitnow", value=bool(sources.get("arbeitnow")))
             active_cols_3 = st.columns(4)
             use_jobicy = active_cols_3[0].checkbox("Jobicy", value=bool(sources.get("jobicy")))
+            use_netvagas = active_cols_3[1].checkbox("Netvagas", value=bool(sources.get("netvagas")))
 
             source_cols = st.columns(2)
             with source_cols[0]:
@@ -1035,7 +1036,7 @@ def settings_tab() -> None:
                 remotive = st.text_area("Remotive categorias", value=list_to_text(sources.get("remotive")), height=80)
                 jobicy = st.text_area("Jobicy regioes", value=list_to_text(sources.get("jobicy")), height=80)
                 remoteok = st.checkbox("Usar RemoteOK", value=bool(sources.get("remoteok")))
-                page_cols = st.columns(3)
+                page_cols = st.columns(4)
                 arbeitnow_pages = page_cols[0].number_input(
                     "Paginas Arbeitnow",
                     min_value=0,
@@ -1050,7 +1051,14 @@ def settings_tab() -> None:
                     value=first_int(sources.get("solides"), 20),
                     step=1,
                 )
-                smartrecruiters_pages = page_cols[2].number_input(
+                netvagas_pages = page_cols[2].number_input(
+                    "Paginas Netvagas",
+                    min_value=0,
+                    max_value=10,
+                    value=first_int(sources.get("netvagas"), 3),
+                    step=1,
+                )
+                smartrecruiters_pages = page_cols[3].number_input(
                     "Paginas SmartRecruiters",
                     min_value=1,
                     max_value=10,
@@ -1072,6 +1080,7 @@ def settings_tab() -> None:
                         "greenhouse": text_to_list(greenhouse) if use_greenhouse else [],
                         "gupy": [str(int(gupy_pages))] if use_gupy and gupy_pages else [],
                         "jobicy": text_to_list(jobicy) if use_jobicy else [],
+                        "netvagas": [str(int(netvagas_pages))] if use_netvagas and netvagas_pages else [],
                         "lever": text_to_list(lever) if use_lever else [],
                         "smartrecruiters": text_to_list(smartrecruiters) if use_smartrecruiters else [],
                         "smartrecruiters_pages": [str(int(smartrecruiters_pages))],

@@ -4,7 +4,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 
 ## O que o app faz
 
-1. Busca vagas em fontes publicas como Greenhouse, Lever, Ashby, SmartRecruiters, Gupy, Remotive, RemoteOK, Jobicy, Arbeitnow e Solides.
+1. Busca vagas em fontes publicas como Greenhouse, Lever, Ashby, SmartRecruiters, Gupy, Netvagas, Remotive, RemoteOK, Jobicy, Arbeitnow e Solides.
 2. Normaliza cargo, empresa, local, descricao, fonte e data de publicacao.
 3. Calcula um score de match com base em cargo, senioridade, skills, dominios de negocio, localizacao e termos de penalizacao.
 4. Exibe recomendacoes em ordem decrescente de match.
@@ -74,6 +74,7 @@ python -m app.search --profile data/profile.yaml --sources data/sources.yaml --l
 - Ashby: ATS por empresa com job board publico.
 - SmartRecruiters: ATS por empresa com postings publicos.
 - Gupy: portal publico brasileiro, filtrado por termos de dados.
+- Netvagas: portal publico brasileiro, filtrado por cargos recentes de dados.
 - Remotive: vagas remotas por categoria.
 - RemoteOK: vagas remotas/tech.
 - Arbeitnow: job board publico.

@@ -10,6 +10,7 @@ from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
 from app.collectors.jobicy import fetch_jobicy_jobs
 from app.collectors.lever import fetch_lever_jobs
+from app.collectors.netvagas import fetch_netvagas_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
@@ -47,6 +48,10 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
         return source_type, token, fetch_jobicy_jobs(geo=geo, max_age_days=max_age_days)
     if source_type == "lever":
         return source_type, token, fetch_lever_jobs(token, max_age_days=max_age_days)
+    if source_type == "netvagas":
+        pages = int(token) if token.isdigit() else 3
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_netvagas_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     if source_type == "remotive":
         return source_type, token, fetch_remotive_jobs(token, max_age_days=max_age_days)
     if source_type == "remoteok":
