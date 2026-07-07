@@ -4,7 +4,7 @@ App local em Python/Streamlit para buscar vagas publicas na area de dados, salva
 
 ## O que o app faz
 
-1. Busca vagas em fontes publicas e APIs credenciadas como Greenhouse, Lever, Ashby, SmartRecruiters, Gupy, Netvagas, Adzuna, Remotive, RemoteOK, Jobicy, Arbeitnow e Solides.
+1. Busca vagas em fontes publicas como Greenhouse, Lever, Ashby, SmartRecruiters, Gupy, Netvagas, Remotar, Remote Rocketship, Trampos, Vagas.com.br, Remotive, RemoteOK, Jobicy, Arbeitnow e Solides.
 2. Normaliza cargo, empresa, local, descricao, fonte e data de publicacao.
 3. Calcula um score de match com base em cargo, senioridade, skills, dominios de negocio, localizacao e termos de penalizacao.
 4. Exibe recomendacoes em ordem decrescente de match.
@@ -59,17 +59,6 @@ Por privacidade, estes arquivos ficam apenas na maquina local:
 
 Use `data/profile.example.yaml` como template publico.
 
-## Credenciais opcionais
-
-Para usar a Adzuna, crie um arquivo `.env` na raiz do projeto com:
-
-```bash
-ADZUNA_APP_ID=seu_app_id
-ADZUNA_APP_KEY=sua_app_key
-```
-
-Depois ative `Adzuna` em `Configuracoes > Fontes de vagas`.
-
 ## CLI opcional
 
 Para testar a busca pelo terminal:
@@ -86,7 +75,10 @@ python -m app.search --profile data/profile.yaml --sources data/sources.yaml --l
 - SmartRecruiters: ATS por empresa com postings publicos.
 - Gupy: portal publico brasileiro, filtrado por termos de dados.
 - Netvagas: portal publico brasileiro, filtrado por cargos recentes de dados.
-- Adzuna: agregador com API oficial credenciada para busca no Brasil.
+- Remotar: curadoria brasileira de vagas remotas, filtrada por dados.
+- Remote Rocketship: agregador de vagas remotas para Brasil, filtrado por slugs especificos de dados.
+- Trampos: job board brasileiro com API publica de oportunidades.
+- Vagas.com.br: portal brasileiro, filtrado por busca publica e detalhes estruturados.
 - Remotive: vagas remotas por categoria.
 - RemoteOK: vagas remotas/tech.
 - Arbeitnow: job board publico.

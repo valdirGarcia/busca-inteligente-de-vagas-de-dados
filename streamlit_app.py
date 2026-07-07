@@ -11,7 +11,6 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-from app.collectors.adzuna import has_adzuna_credentials
 from app.db import (
     DEFAULT_DB_PATH,
     count_jobs,
@@ -1004,7 +1003,7 @@ def settings_tab() -> None:
     with sources_section:
         st.caption(
             "Greenhouse, Lever, Ashby e SmartRecruiters sao ATS por empresa. "
-            "Gupy, Solides, Netvagas, Adzuna, Remotive, RemoteOK, Arbeitnow e Jobicy ampliam a busca."
+            "Gupy, Solides, Netvagas, Remotar, Remote Rocketship, Trampos, Vagas.com.br, Remotive, RemoteOK, Arbeitnow e Jobicy ampliam a busca."
         )
         with st.form("sources-form"):
             st.markdown("**Fontes ativas**")
@@ -1024,9 +1023,14 @@ def settings_tab() -> None:
             active_cols_3 = st.columns(4)
             use_jobicy = active_cols_3[0].checkbox("Jobicy", value=bool(sources.get("jobicy")))
             use_netvagas = active_cols_3[1].checkbox("Netvagas", value=bool(sources.get("netvagas")))
-            use_adzuna = active_cols_3[2].checkbox("Adzuna", value=bool(sources.get("adzuna")))
-            adzuna_status = "credenciais encontradas" if has_adzuna_credentials() else "aguardando ADZUNA_APP_ID e ADZUNA_APP_KEY no .env"
-            st.caption(f"Adzuna Brasil: {adzuna_status}.")
+            use_remotar = active_cols_3[2].checkbox("Remotar", value=bool(sources.get("remotar")))
+            use_trampos = active_cols_3[3].checkbox("Trampos", value=bool(sources.get("trampos")))
+            active_cols_4 = st.columns(4)
+            use_remoterocketship = active_cols_4[0].checkbox(
+                "Remote Rocketship",
+                value=bool(sources.get("remoterocketship")),
+            )
+            use_vagascom = active_cols_4[1].checkbox("Vagas.com.br", value=bool(sources.get("vagascom")))
 
             source_cols = st.columns(2)
             with source_cols[0]:
@@ -1041,6 +1045,12 @@ def settings_tab() -> None:
                 )
                 remotive = st.text_area("Remotive categorias", value=list_to_text(sources.get("remotive")), height=80)
                 jobicy = st.text_area("Jobicy regioes", value=list_to_text(sources.get("jobicy")), height=80)
+                remoterocketship = st.text_area(
+                    "Remote Rocketship slugs",
+                    value=list_to_text(sources.get("remoterocketship")),
+                    height=110,
+                    help="Use slugs especificos, por exemplo analista-de-dados e cientista-de-dados.",
+                )
                 remoteok = st.checkbox("Usar RemoteOK", value=bool(sources.get("remoteok")))
                 page_cols = st.columns(4)
                 arbeitnow_pages = page_cols[0].number_input(
@@ -1061,7 +1071,7 @@ def settings_tab() -> None:
                     "Paginas Netvagas",
                     min_value=0,
                     max_value=10,
-                    value=first_int(sources.get("netvagas"), 3),
+                    value=first_int(sources.get("netvagas"), 1),
                     step=1,
                 )
                 smartrecruiters_pages = page_cols[3].number_input(
@@ -1078,31 +1088,48 @@ def settings_tab() -> None:
                     value=first_int(sources.get("gupy"), 8),
                     step=1,
                 )
-                adzuna_pages = st.number_input(
-                    "Paginas por termo na Adzuna",
+                extra_page_cols = st.columns(3)
+                remotar_pages = extra_page_cols[0].number_input(
+                    "Paginas por termo na Remotar",
                     min_value=0,
-                    max_value=5,
-                    value=first_int(sources.get("adzuna"), 2),
+                    max_value=10,
+                    value=first_int(sources.get("remotar"), 3),
                     step=1,
-                    help="A Adzuna tem limite de chamadas. Mantenha baixo para evitar gastar a cota diaria.",
+                )
+                trampos_pages = extra_page_cols[1].number_input(
+                    "Paginas por termo na Trampos",
+                    min_value=0,
+                    max_value=10,
+                    value=first_int(sources.get("trampos"), 2),
+                    step=1,
+                )
+                vagascom_pages = extra_page_cols[2].number_input(
+                    "Paginas por termo na Vagas.com.br",
+                    min_value=0,
+                    max_value=10,
+                    value=first_int(sources.get("vagascom"), 2),
+                    step=1,
                 )
             if st.form_submit_button("Salvar fontes", type="primary"):
                 write_yaml(
                     SOURCES_PATH,
                     {
-                        "adzuna": [str(int(adzuna_pages))] if use_adzuna and adzuna_pages else [],
                         "ashby": text_to_list(ashby) if use_ashby else [],
                         "greenhouse": text_to_list(greenhouse) if use_greenhouse else [],
                         "gupy": [str(int(gupy_pages))] if use_gupy and gupy_pages else [],
                         "jobicy": text_to_list(jobicy) if use_jobicy else [],
                         "netvagas": [str(int(netvagas_pages))] if use_netvagas and netvagas_pages else [],
+                        "remotar": [str(int(remotar_pages))] if use_remotar and remotar_pages else [],
                         "lever": text_to_list(lever) if use_lever else [],
                         "smartrecruiters": text_to_list(smartrecruiters) if use_smartrecruiters else [],
                         "smartrecruiters_pages": [str(int(smartrecruiters_pages))],
                         "remotive": text_to_list(remotive) if use_remotive else [],
                         "remoteok": ["data"] if remoteok else [],
+                        "remoterocketship": text_to_list(remoterocketship) if use_remoterocketship else [],
                         "arbeitnow": [str(int(arbeitnow_pages))] if use_arbeitnow and arbeitnow_pages else [],
                         "solides": [str(int(solides_pages))] if use_solides and solides_pages else [],
+                        "trampos": [str(int(trampos_pages))] if use_trampos and trampos_pages else [],
+                        "vagascom": [str(int(vagascom_pages))] if use_vagascom and vagascom_pages else [],
                     },
                 )
                 st.success("Fontes salvas. Clique em Buscar vagas agora para coletar dessas fontes.")

@@ -38,9 +38,6 @@ lever:
 gupy:
   - 8
 
-# Agregador via API oficial credenciada. Requer ADZUNA_APP_ID e ADZUNA_APP_KEY no .env.
-adzuna: []
-
 # Ashby tambem e ATS por empresa, com endpoint publico de job board.
 ashby:
   - openai
@@ -77,7 +74,26 @@ jobicy:
 
 # Portal publico brasileiro com busca por cargo.
 netvagas:
+  - 1
+
+# Curadoria brasileira de vagas remotas com API publica.
+remotar:
   - 3
+
+# Agregador de vagas remotas com paginas especificas para o Brasil.
+remoterocketship:
+  - analista-de-dados
+  - cientista-de-dados
+  - engenheiro-de-dados
+  - analista-de-business-intelligence
+
+# Job board brasileiro com API publica de oportunidades.
+trampos:
+  - 2
+
+# Portal brasileiro de vagas, lido por busca publica e detalhes estruturados.
+vagascom:
+  - 2
 
 # Numero de paginas lidas da API publica do Arbeitnow.
 arbeitnow:

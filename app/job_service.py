@@ -1,27 +1,35 @@
 from __future__ import annotations
 
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 from pathlib import Path
+import re
 from time import sleep
+import unicodedata
 from urllib.error import HTTPError, URLError
 
-from app.collectors.adzuna import fetch_adzuna_jobs
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
 from app.collectors.jobicy import fetch_jobicy_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.netvagas import fetch_netvagas_jobs
+from app.collectors.remotar import fetch_remotar_jobs
+from app.collectors.remoterocketship import fetch_remoterocketship_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
 from app.collectors.smartrecruiters import fetch_smartrecruiters_jobs
 from app.collectors.solides import fetch_solides_jobs
+from app.collectors.trampos import fetch_trampos_jobs
+from app.collectors.vagascom import fetch_vagascom_jobs
 from app.db import (
     DEFAULT_DB_PATH,
     connect,
     create_search_run,
     init_db,
+    make_job_id,
     prune_irrelevant_jobs,
     prune_stale_jobs,
     upsert_match_results,
@@ -36,10 +44,6 @@ from app.sources_loader import load_sources
 
 def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tuple[str, str, list[Job]]:
     max_age_days = settings.get("max_age_days", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])
-    if source_type == "adzuna":
-        pages = int(token) if token.isdigit() else 2
-        terms = None if token.isdigit() else [token]
-        return source_type, token, fetch_adzuna_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     if source_type == "ashby":
         return source_type, token, fetch_ashby_jobs(token, max_age_days=max_age_days)
     if source_type == "greenhouse":
@@ -54,9 +58,15 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
     if source_type == "lever":
         return source_type, token, fetch_lever_jobs(token, max_age_days=max_age_days)
     if source_type == "netvagas":
-        pages = int(token) if token.isdigit() else 3
+        pages = int(token) if token.isdigit() else 1
         terms = None if token.isdigit() else [token]
         return source_type, token, fetch_netvagas_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
+    if source_type == "remotar":
+        pages = int(token) if token.isdigit() else 3
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_remotar_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
+    if source_type == "remoterocketship":
+        return source_type, token, fetch_remoterocketship_jobs(slugs=[token], max_age_days=max_age_days)
     if source_type == "remotive":
         return source_type, token, fetch_remotive_jobs(token, max_age_days=max_age_days)
     if source_type == "remoteok":
@@ -74,6 +84,14 @@ def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tup
         pages = int(token) if token.isdigit() else 20
         terms = None if token.isdigit() else [token]
         return source_type, token, fetch_solides_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
+    if source_type == "trampos":
+        pages = int(token) if token.isdigit() else 2
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_trampos_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
+    if source_type == "vagascom":
+        pages = int(token) if token.isdigit() else 2
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_vagascom_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     raise ValueError(f"Fonte desconhecida: {source_type}")
 
 
@@ -152,17 +170,139 @@ def collect_jobs(sources_path: str | Path, max_age_days: int = 7) -> tuple[list[
     return jobs, errors
 
 
+def _normalize_dedupe(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.lower())
+    without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
+    without_punctuation = re.sub(r"[^a-z0-9]+", " ", without_accents)
+    return re.sub(r"\s+", " ", without_punctuation).strip()
+
+
+def _decode_gupy_token(token: str) -> str:
+    try:
+        padding = "=" * (-len(token) % 4)
+        decoded = base64.urlsafe_b64decode((token + padding).encode("utf-8")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception:
+        return ""
+    return str(payload.get("jobId") or payload.get("job_id") or "")
+
+
+def _url_dedupe_key(url: str) -> str:
+    raw_url = url.strip().rstrip("/")
+    normalized = raw_url.lower()
+    if not normalized:
+        return ""
+
+    gupy_match = re.search(r"https?://([a-z0-9-]+)\.gupy\.io/(?:jobs|job)/([^/?#]+)", raw_url, re.I)
+    if gupy_match:
+        board, token = gupy_match.groups()
+        job_id = token if token.isdigit() else _decode_gupy_token(token)
+        if job_id:
+            return f"gupy:{board}:{job_id}"
+
+    solides_match = re.search(r"https?://[^/]*solides\.[^/]+/(?:.*?/)?(?:vaga|vacancies)/(\d+)", normalized)
+    if solides_match:
+        return f"solides:{solides_match.group(1)}"
+
+    return normalized
+
+
+def _dedupe_keys(job: Job) -> list[str]:
+    keys = []
+    normalized_url = _url_dedupe_key(job.url)
+    if normalized_url:
+        keys.append(f"url:{normalized_url}")
+
+    company_title_location = "|".join(
+        part
+        for part in [
+            _normalize_dedupe(job.company),
+            _normalize_dedupe(job.title),
+            _normalize_dedupe(job.location),
+        ]
+        if part
+    )
+    if company_title_location:
+        keys.append(f"signature:{company_title_location}")
+
+    if not keys:
+        keys.append(f"fallback:{job.source}:{_normalize_dedupe(job.title)}:{_normalize_dedupe(job.location)}")
+    return keys
+
+
+def _prefer_job(candidate: Job, existing: Job) -> Job:
+    primary_sources = {"gupy", "solides", "netvagas", "remotar", "vagascom"}
+    if candidate.source in primary_sources and existing.source not in primary_sources:
+        return candidate
+    if existing.source in primary_sources and candidate.source not in primary_sources:
+        return existing
+    if len(candidate.description or "") > len(existing.description or ""):
+        return candidate
+    return existing
+
+
 def rank_jobs(profile_path: str | Path, jobs: list[Job]) -> list[MatchResult]:
     profile = load_profile(profile_path)
-    unique_jobs = {}
+    unique_jobs: dict[str, Job] = {}
+    key_owner: dict[str, str] = {}
     for job in jobs:
-        dedupe_key = job.url or f"{job.source}:{job.company}:{job.title}:{job.location}"
-        unique_jobs[dedupe_key] = job
+        dedupe_keys = _dedupe_keys(job)
+        owner_key = next((key_owner[key] for key in dedupe_keys if key in key_owner), "")
+        if owner_key:
+            unique_jobs[owner_key] = _prefer_job(job, unique_jobs[owner_key])
+        else:
+            owner_key = dedupe_keys[0]
+            unique_jobs[owner_key] = job
+        for key in _dedupe_keys(unique_jobs[owner_key]):
+            key_owner[key] = owner_key
+        for key in dedupe_keys:
+            key_owner[key] = owner_key
     return sorted(
         (score_job(profile, job) for job in unique_jobs.values()),
         key=lambda item: item.score,
         reverse=True,
     )
+
+
+def prune_superseded_duplicates(results: list[MatchResult], db_path: str | Path = DEFAULT_DB_PATH) -> int:
+    keep_ids = {make_job_id(result.job) for result in results}
+    active_keys = set()
+    for result in results:
+        active_keys.update(_dedupe_keys(result.job))
+
+    if not active_keys:
+        return 0
+
+    delete_ids = []
+    with connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, company, location, url, description, source, published_at
+            FROM jobs
+            WHERE status NOT IN ('saved', 'applied')
+              AND source != 'manual'
+            """
+        )
+        for row in rows:
+            row_id = str(row["id"])
+            if row_id in keep_ids:
+                continue
+            row_job = Job(
+                title=str(row["title"] or ""),
+                company=str(row["company"] or ""),
+                location=str(row["location"] or ""),
+                url=str(row["url"] or ""),
+                description=str(row["description"] or ""),
+                source=str(row["source"] or ""),
+                published_at=str(row["published_at"] or ""),
+            )
+            if active_keys.intersection(_dedupe_keys(row_job)):
+                delete_ids.append(row_id)
+
+        if delete_ids:
+            placeholders = ", ".join("?" for _ in delete_ids)
+            connection.execute(f"DELETE FROM jobs WHERE id IN ({placeholders})", delete_ids)
+    return len(delete_ids)
 
 
 def refresh_recommendations(
@@ -189,6 +329,7 @@ def refresh_recommendations(
         source = result.job.source
         eligible_by_source[source] = eligible_by_source.get(source, 0) + 1
     saved = upsert_match_results(storable_results, db_path)
+    deduped = prune_superseded_duplicates(storable_results, db_path)
     pruned = prune_irrelevant_jobs(
         min_score_to_store,
         db_path,
@@ -197,7 +338,7 @@ def refresh_recommendations(
         max_age_days,
         db_path,
     )
-    if pruned or stale_pruned:
+    if deduped or pruned or stale_pruned:
         vacuum_db(db_path)
     summary = {
         "started_at": started_at,
@@ -206,6 +347,7 @@ def refresh_recommendations(
         "ranked": len(results),
         "eligible": len(storable_results),
         "saved": saved,
+        "deduped": deduped,
         "pruned": pruned,
         "stale_pruned": stale_pruned,
         "errors": errors,

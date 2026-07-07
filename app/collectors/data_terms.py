@@ -23,6 +23,8 @@ DATA_JOB_TERMS = [
     "analytics consultant",
     "analista de analytics",
     "analista analytics",
+    "analista de insights",
+    "insights analyst",
     "business intelligence",
     "bi analyst",
     "bi consultant",

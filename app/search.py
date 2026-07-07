@@ -3,19 +3,21 @@ from __future__ import annotations
 import argparse
 from urllib.error import HTTPError, URLError
 
-from app.collectors.adzuna import fetch_adzuna_jobs
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
 from app.collectors.lever import fetch_lever_jobs
 from app.collectors.netvagas import fetch_netvagas_jobs
+from app.collectors.remotar import fetch_remotar_jobs
+from app.collectors.remoterocketship import fetch_remoterocketship_jobs
 from app.collectors.remotive import fetch_remotive_jobs
 from app.collectors.remoteok import fetch_remoteok_jobs
 from app.collectors.arbeitnow import fetch_arbeitnow_jobs
 from app.collectors.smartrecruiters import fetch_smartrecruiters_jobs
 from app.collectors.solides import fetch_solides_jobs
-from app.matcher import score_job
-from app.profile_loader import load_profile
+from app.collectors.trampos import fetch_trampos_jobs
+from app.collectors.vagascom import fetch_vagascom_jobs
+from app.job_service import rank_jobs
 from app.sources_loader import load_sources
 
 
@@ -64,22 +66,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arbeitnow", type=int, help="Buscar vagas filtradas no Arbeitnow. Valor = paginas.")
     parser.add_argument("--solides", type=int, help="Buscar vagas filtradas na Solides. Valor = paginas por termo.")
     parser.add_argument("--netvagas", type=int, help="Buscar vagas filtradas na Netvagas. Valor = paginas por termo.")
-    parser.add_argument("--adzuna", type=int, help="Buscar vagas filtradas na Adzuna Brasil. Valor = paginas por termo.")
+    parser.add_argument("--remotar", type=int, help="Buscar vagas filtradas na Remotar. Valor = paginas por termo.")
+    parser.add_argument(
+        "--remoterocketship",
+        action="append",
+        default=[],
+        help="Slug de busca na Remote Rocketship. Ex: --remoterocketship analista-de-dados",
+    )
+    parser.add_argument("--trampos", type=int, help="Buscar vagas filtradas na Trampos. Valor = paginas por termo.")
+    parser.add_argument("--vagascom", type=int, help="Buscar vagas filtradas na Vagas.com.br. Valor = paginas por termo.")
     parser.add_argument("--limit", type=int, default=20, help="Quantidade de resultados exibidos.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    profile = load_profile(args.profile)
 
     if args.sources:
         configured_sources = load_sources(args.sources)
         args.ashby.extend(configured_sources["ashby"])
         args.lever.extend(configured_sources["lever"])
         args.greenhouse.extend(configured_sources["greenhouse"])
-        if configured_sources["adzuna"] and args.adzuna is None:
-            args.adzuna = int(configured_sources["adzuna"][0])
         if configured_sources["gupy"] and args.gupy is None:
             args.gupy = int(configured_sources["gupy"][0])
         args.smartrecruiters.extend(configured_sources["smartrecruiters"])
@@ -93,6 +100,13 @@ def main() -> None:
             args.solides = int(configured_sources["solides"][0])
         if configured_sources["netvagas"] and args.netvagas is None:
             args.netvagas = int(configured_sources["netvagas"][0])
+        if configured_sources["remotar"] and args.remotar is None:
+            args.remotar = int(configured_sources["remotar"][0])
+        args.remoterocketship.extend(configured_sources["remoterocketship"])
+        if configured_sources["trampos"] and args.trampos is None:
+            args.trampos = int(configured_sources["trampos"][0])
+        if configured_sources["vagascom"] and args.vagascom is None:
+            args.vagascom = int(configured_sources["vagascom"][0])
 
     jobs = []
     attempted_sources = 0
@@ -140,17 +154,6 @@ def main() -> None:
             print(f"Aviso: Gupy retornou HTTP {error.code}. Pulando fonte.")
         except URLError as error:
             print(f"Aviso: erro de rede ao buscar Gupy: {error.reason}. Pulando fonte.")
-
-    if args.adzuna:
-        attempted_sources += 1
-        try:
-            jobs.extend(fetch_adzuna_jobs(pages_per_term=args.adzuna))
-        except HTTPError as error:
-            print(f"Aviso: Adzuna retornou HTTP {error.code}. Pulando fonte.")
-        except URLError as error:
-            print(f"Aviso: erro de rede ao buscar Adzuna: {error.reason}. Pulando fonte.")
-        except RuntimeError as error:
-            print(f"Aviso: {error} Pulando fonte.")
 
     for company_slug in args.smartrecruiters:
         attempted_sources += 1
@@ -212,6 +215,42 @@ def main() -> None:
         except URLError as error:
             print(f"Aviso: erro de rede ao buscar Netvagas: {error.reason}. Pulando fonte.")
 
+    if args.remotar:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_remotar_jobs(pages_per_term=args.remotar))
+        except HTTPError as error:
+            print(f"Aviso: Remotar retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Remotar: {error.reason}. Pulando fonte.")
+
+    if args.remoterocketship:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_remoterocketship_jobs(slugs=args.remoterocketship))
+        except HTTPError as error:
+            print(f"Aviso: Remote Rocketship retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Remote Rocketship: {error.reason}. Pulando fonte.")
+
+    if args.trampos:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_trampos_jobs(pages_per_term=args.trampos))
+        except HTTPError as error:
+            print(f"Aviso: Trampos retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Trampos: {error.reason}. Pulando fonte.")
+
+    if args.vagascom:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_vagascom_jobs(pages_per_term=args.vagascom))
+        except HTTPError as error:
+            print(f"Aviso: Vagas.com.br retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Vagas.com.br: {error.reason}. Pulando fonte.")
+
     if attempted_sources == 0:
         print("Nenhuma fonte informada. Exemplo: python -m app.search --profile data/profile.yaml --sources data/sources.yaml")
         return
@@ -220,12 +259,7 @@ def main() -> None:
         print("Nenhuma vaga encontrada nas fontes informadas.")
         return
 
-    unique_jobs = {}
-    for job in jobs:
-        dedupe_key = job.url or f"{job.source}:{job.company}:{job.title}:{job.location}"
-        unique_jobs[dedupe_key] = job
-
-    results = sorted((score_job(profile, job) for job in unique_jobs.values()), key=lambda item: item.score, reverse=True)
+    results = rank_jobs(args.profile, jobs)
 
     for result in results[: args.limit]:
         job = result.job

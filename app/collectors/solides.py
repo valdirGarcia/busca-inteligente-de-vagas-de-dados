@@ -40,6 +40,8 @@ SOLIDES_TITLE_TERMS = [
     "analytics",
     "analista de analytics",
     "analista analytics",
+    "analista de insights",
+    "insights analyst",
     "power bi",
     "dashboard",
     "dashboards",

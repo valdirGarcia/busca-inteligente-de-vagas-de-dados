@@ -38,6 +38,8 @@ GUPY_TITLE_TERMS = [
     "analytics",
     "analista de analytics",
     "analista analytics",
+    "analista de insights",
+    "insights analyst",
     "power bi",
     "dashboard",
     "dashboards",
@@ -173,14 +175,18 @@ def _fetch_term_jobs(term: str, pages: int, limit: int, max_age_days: int, timeo
         if not items:
             break
 
+        page_has_recent_job = False
         for item in items:
             published_at = str(item.get("publishedDate") or "")
             if not _published_within_days(published_at, max_age_days):
                 continue
+            page_has_recent_job = True
             job = _build_job(item)
             if job:
                 jobs.append(job)
 
+        if not page_has_recent_job:
+            break
         if len(items) < limit:
             break
     return jobs

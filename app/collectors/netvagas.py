@@ -39,6 +39,8 @@ NETVAGAS_TITLE_TERMS = [
     "analista de inteligencia de negocios",
     "analista de inteligencia de mercado",
     "analista de informacoes",
+    "analista de insights",
+    "insights analyst",
     "analista de mis",
     "analista de relatorios",
     "analista de pricing",
