@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from app.collectors.adzuna import has_adzuna_credentials
 from app.db import (
     DEFAULT_DB_PATH,
     count_jobs,
@@ -201,7 +202,6 @@ def row_is_remote(row, categories: dict[str, str]) -> bool:
     is_remote = normalize_text(categories.get("is_remote", ""))
     workplace_type = normalize_text(categories.get("workplace_type", ""))
     job_type = normalize_text(categories.get("job_type", ""))
-    category_text = normalize_text(" ".join(categories.values()))
     return (
         row["source"] in {"jobicy", "remotive", "remoteok"}
         or "remot" in location
@@ -210,8 +210,6 @@ def row_is_remote(row, categories: dict[str, str]) -> bool:
         or is_remote == "true"
         or workplace_type == "remote"
         or job_type == "remoto"
-        or "home office" in category_text
-        or "teletrabalho" in category_text
     )
 
 
@@ -219,7 +217,12 @@ def row_is_hybrid(row, categories: dict[str, str]) -> bool:
     location = normalize_text(row["location"] or "")
     workplace_type = normalize_text(categories.get("workplace_type", ""))
     job_type = normalize_text(categories.get("job_type", ""))
-    return "hibrid" in location or "hybrid" in location or workplace_type == "hybrid" or job_type == "hibrido"
+    return (
+        "hibrid" in location
+        or "hybrid" in location
+        or workplace_type == "hybrid"
+        or job_type in {"hibrido", "hybrid"}
+    )
 
 
 def row_is_region(row, preferred_locations: list[str]) -> bool:
@@ -1001,7 +1004,7 @@ def settings_tab() -> None:
     with sources_section:
         st.caption(
             "Greenhouse, Lever, Ashby e SmartRecruiters sao ATS por empresa. "
-            "Gupy, Solides, Netvagas, Remotive, RemoteOK, Arbeitnow e Jobicy ampliam a busca."
+            "Gupy, Solides, Netvagas, Adzuna, Remotive, RemoteOK, Arbeitnow e Jobicy ampliam a busca."
         )
         with st.form("sources-form"):
             st.markdown("**Fontes ativas**")
@@ -1021,6 +1024,9 @@ def settings_tab() -> None:
             active_cols_3 = st.columns(4)
             use_jobicy = active_cols_3[0].checkbox("Jobicy", value=bool(sources.get("jobicy")))
             use_netvagas = active_cols_3[1].checkbox("Netvagas", value=bool(sources.get("netvagas")))
+            use_adzuna = active_cols_3[2].checkbox("Adzuna", value=bool(sources.get("adzuna")))
+            adzuna_status = "credenciais encontradas" if has_adzuna_credentials() else "aguardando ADZUNA_APP_ID e ADZUNA_APP_KEY no .env"
+            st.caption(f"Adzuna Brasil: {adzuna_status}.")
 
             source_cols = st.columns(2)
             with source_cols[0]:
@@ -1072,10 +1078,19 @@ def settings_tab() -> None:
                     value=first_int(sources.get("gupy"), 8),
                     step=1,
                 )
+                adzuna_pages = st.number_input(
+                    "Paginas por termo na Adzuna",
+                    min_value=0,
+                    max_value=5,
+                    value=first_int(sources.get("adzuna"), 2),
+                    step=1,
+                    help="A Adzuna tem limite de chamadas. Mantenha baixo para evitar gastar a cota diaria.",
+                )
             if st.form_submit_button("Salvar fontes", type="primary"):
                 write_yaml(
                     SOURCES_PATH,
                     {
+                        "adzuna": [str(int(adzuna_pages))] if use_adzuna and adzuna_pages else [],
                         "ashby": text_to_list(ashby) if use_ashby else [],
                         "greenhouse": text_to_list(greenhouse) if use_greenhouse else [],
                         "gupy": [str(int(gupy_pages))] if use_gupy and gupy_pages else [],

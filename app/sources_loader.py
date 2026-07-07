@@ -19,6 +19,7 @@ def load_sources(path: str | Path) -> dict[str, list[str]]:
         raw = yaml.safe_load(file) or {}
 
     return {
+        "adzuna": _as_list(raw.get("adzuna")),
         "ashby": _as_list(raw.get("ashby")),
         "lever": _as_list(raw.get("lever")),
         "greenhouse": _as_list(raw.get("greenhouse")),

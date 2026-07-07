@@ -38,6 +38,9 @@ lever:
 gupy:
   - 8
 
+# Agregador via API oficial credenciada. Requer ADZUNA_APP_ID e ADZUNA_APP_KEY no .env.
+adzuna: []
+
 # Ashby tambem e ATS por empresa, com endpoint publico de job board.
 ashby:
   - openai

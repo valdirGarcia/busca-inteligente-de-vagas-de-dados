@@ -70,6 +70,26 @@ def _clean(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _infer_job_type(title: str, location: str, description: str) -> str:
+    location_text = _normalize(location)
+    text = _normalize(" ".join([title, description[:800]]))
+    if "home office" in location_text or "remoto" in location_text or "remote" in location_text:
+        return "remoto"
+
+    hybrid_cues = (
+        "hibrid" in text
+        or "dias presenciais" in text
+        or "dia presencial" in text
+        or ("home office" in text and "presencial" in text)
+    )
+    if hybrid_cues:
+        return "hibrido"
+
+    if "home office" in text or "remoto" in text or "remote" in text or "teletrabalho" in text:
+        return "remoto"
+    return ""
+
+
 def _headers(referer: str = NETVAGAS_BASE_URL) -> dict[str, str]:
     return {
         "User-Agent": "Mozilla/5.0 busca-vagas-app/0.1",
@@ -306,9 +326,6 @@ def _build_job(card: dict[str, str], timeout: int) -> Job | None:
     if not looks_like_data_job(searchable):
         return None
 
-    modality_text = _normalize(" ".join([title, location, description[:500]]))
-    job_type = "remoto" if "home office" in modality_text or "remoto" in modality_text else ""
-
     return Job(
         title=title,
         company=card.get("company", ""),
@@ -321,7 +338,7 @@ def _build_job(card: dict[str, str], timeout: int) -> Job | None:
             "date_label": card.get("date_label", ""),
             "netvagas_id": netvagas_id,
             "search_term": card.get("search_term", ""),
-            "job_type": job_type,
+            "job_type": _infer_job_type(title, location, description),
         },
     )
 

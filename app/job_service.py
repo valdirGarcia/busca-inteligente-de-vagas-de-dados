@@ -5,6 +5,7 @@ from pathlib import Path
 from time import sleep
 from urllib.error import HTTPError, URLError
 
+from app.collectors.adzuna import fetch_adzuna_jobs
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
@@ -35,6 +36,10 @@ from app.sources_loader import load_sources
 
 def _fetch_source(source_type: str, token: str, settings: dict[str, int]) -> tuple[str, str, list[Job]]:
     max_age_days = settings.get("max_age_days", DEFAULT_MATCH_SETTINGS["max_job_age_days_to_store"])
+    if source_type == "adzuna":
+        pages = int(token) if token.isdigit() else 2
+        terms = None if token.isdigit() else [token]
+        return source_type, token, fetch_adzuna_jobs(pages_per_term=pages, terms=terms, max_age_days=max_age_days)
     if source_type == "ashby":
         return source_type, token, fetch_ashby_jobs(token, max_age_days=max_age_days)
     if source_type == "greenhouse":

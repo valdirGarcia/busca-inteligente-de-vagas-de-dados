@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from urllib.error import HTTPError, URLError
 
+from app.collectors.adzuna import fetch_adzuna_jobs
 from app.collectors.ashby import fetch_ashby_jobs
 from app.collectors.greenhouse import fetch_greenhouse_jobs
 from app.collectors.gupy import fetch_gupy_jobs
@@ -63,6 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arbeitnow", type=int, help="Buscar vagas filtradas no Arbeitnow. Valor = paginas.")
     parser.add_argument("--solides", type=int, help="Buscar vagas filtradas na Solides. Valor = paginas por termo.")
     parser.add_argument("--netvagas", type=int, help="Buscar vagas filtradas na Netvagas. Valor = paginas por termo.")
+    parser.add_argument("--adzuna", type=int, help="Buscar vagas filtradas na Adzuna Brasil. Valor = paginas por termo.")
     parser.add_argument("--limit", type=int, default=20, help="Quantidade de resultados exibidos.")
     return parser.parse_args()
 
@@ -76,6 +78,8 @@ def main() -> None:
         args.ashby.extend(configured_sources["ashby"])
         args.lever.extend(configured_sources["lever"])
         args.greenhouse.extend(configured_sources["greenhouse"])
+        if configured_sources["adzuna"] and args.adzuna is None:
+            args.adzuna = int(configured_sources["adzuna"][0])
         if configured_sources["gupy"] and args.gupy is None:
             args.gupy = int(configured_sources["gupy"][0])
         args.smartrecruiters.extend(configured_sources["smartrecruiters"])
@@ -136,6 +140,17 @@ def main() -> None:
             print(f"Aviso: Gupy retornou HTTP {error.code}. Pulando fonte.")
         except URLError as error:
             print(f"Aviso: erro de rede ao buscar Gupy: {error.reason}. Pulando fonte.")
+
+    if args.adzuna:
+        attempted_sources += 1
+        try:
+            jobs.extend(fetch_adzuna_jobs(pages_per_term=args.adzuna))
+        except HTTPError as error:
+            print(f"Aviso: Adzuna retornou HTTP {error.code}. Pulando fonte.")
+        except URLError as error:
+            print(f"Aviso: erro de rede ao buscar Adzuna: {error.reason}. Pulando fonte.")
+        except RuntimeError as error:
+            print(f"Aviso: {error} Pulando fonte.")
 
     for company_slug in args.smartrecruiters:
         attempted_sources += 1

@@ -169,8 +169,6 @@ def _remote_clause() -> str:
             OR LOWER(COALESCE(categories_json, '')) LIKE '%"is_remote": "true"%'
             OR LOWER(COALESCE(categories_json, '')) LIKE '%"workplace_type": "remote"%'
             OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "remoto"%'
-            OR LOWER(COALESCE(categories_json, '')) LIKE '%home office%'
-            OR LOWER(COALESCE(categories_json, '')) LIKE '%teletrabalho%'
         )
     """
 
@@ -183,6 +181,7 @@ def _hybrid_clause() -> str:
             OR LOWER(COALESCE(categories_json, '')) LIKE '%"workplace_type": "hybrid"%'
             OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "hibrido"%'
             OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "híbrido"%'
+            OR LOWER(COALESCE(categories_json, '')) LIKE '%"job_type": "hybrid"%'
         )
     """
 
